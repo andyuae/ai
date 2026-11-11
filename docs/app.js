@@ -135,13 +135,17 @@ async function loadConfigs() {
     };
   });
   /* 一次性修正：新默认是"配了密钥的成员全部启用"，把之前被关掉的开关自动恢复。
-     只在本地执行一次（记录标记），之后设置页的开关仍由用户自己控制 */
+     保存全部成功后才记录标记；若中途失败，下次进站会再次尝试 */
   if (!localStorage.getItem('enabledAll4')) {
     const off = providers.filter(p => p.configured && !p.enabled);
-    localStorage.setItem('enabledAll4', '1');
     if (off.length) {
-      for (const p of off) { try { await upsertProvider(p.key, { enabled: true }); } catch (_) {} }
-      return loadConfigs(); // 重新加载一次，让开关状态生效
+      try {
+        for (const p of off) await upsertProvider(p.key, { enabled: true });
+        localStorage.setItem('enabledAll4', '1');
+        return loadConfigs(); // 重新加载一次，让开关状态生效
+      } catch (_) { /* 失败则下次再试 */ }
+    } else {
+      localStorage.setItem('enabledAll4', '1');
     }
   }
   currentModelSel = {};
@@ -619,12 +623,11 @@ function addPhaseTip(text) {
 function renderChips() {
   const chips = $('member-chips');
   chips.innerHTML = '';
-  const defaults = (settings && settings.default_participants) || [];
   providers.forEach(p => {
     const chip = document.createElement('span');
     const usable = p.configured && p.enabled;
-    const isDefault = defaults.some(x => x.provider === p.key);
-    chip.className = 'member-chip' + (usable && (!settings || !defaults.length || isDefault) ? ' on' : '') + (usable ? '' : ' disabled');
+    /* 新默认：配了密钥且启用的成员一律点亮，不再受旧"默认成员"设置限制 */
+    chip.className = 'member-chip' + (usable ? ' on' : ' disabled');
     if (usable) chip.dataset.provider = p.key;
     chip.innerHTML = `<span class="dot"></span>${p.name} <select>${p.models.map(m =>
       `<option value="${m}" ${currentModelSel[p.key] === m ? 'selected' : ''}>${p.modelLabel[m] || m}</option>`).join('')}</select>`;
