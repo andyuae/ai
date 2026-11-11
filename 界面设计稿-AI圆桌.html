@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 圆桌 · 界面设计稿</title>
+<style>
+  :root{
+    --blue:#185FA5; --blue-light:#E6F1FB; --blue-mid:#B5D4F4;
+    --purple:#534AB7; --purple-light:#EEEDFE;
+    --teal:#0F6E56; --teal-light:#E1F5EE;
+    --coral:#993C1D; --coral-light:#FAECE7;
+    --amber:#854F0B; --amber-light:#FAEEDA;
+    --pink:#993556; --pink-light:#FBEAF0;
+    --text:#1a1a1a; --muted:#666; --border:#e3e3e3; --bg:#f5f6f8;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+  body{background:var(--bg);color:var(--text);font-size:14px}
+  .mock-banner{background:var(--amber-light);color:var(--amber);text-align:center;padding:8px;font-size:13px;border-bottom:1px solid #EF9F27}
+  .view{display:none;min-height:calc(100vh - 37px)}
+  .view.active{display:block}
+  button{cursor:pointer;border:none;font-size:14px}
+  input,select,textarea{font-size:14px;outline:none;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fff}
+  input:focus{border-color:var(--blue)}
+
+  /* ---------- 登录页 ---------- */
+  #view-login{display:none;align-items:center;justify-content:center}
+  #view-login.active{display:flex}
+  .login-card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:40px 36px;width:360px;margin:60px 16px}
+  .login-logo{text-align:center;margin-bottom:6px}
+  .login-logo .logo-circle{width:56px;height:56px;border-radius:14px;background:var(--purple-light);color:var(--purple);display:inline-flex;align-items:center;justify-content:center;font-size:26px;font-weight:700}
+  .login-logo h1{font-size:20px;margin-top:12px;font-weight:500}
+  .login-logo p{color:var(--muted);font-size:13px;margin-top:4px}
+  .field{margin-top:16px}
+  .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .field input{width:100%}
+  .login-error{display:none;background:#FCEBEB;color:#A32D2D;border:1px solid #F09595;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:14px}
+  .btn-primary{width:100%;margin-top:20px;background:var(--blue);color:#fff;border-radius:8px;padding:12px;font-size:15px}
+  .btn-primary:hover{background:#0C447C}
+  .login-tip{color:var(--muted);font-size:12px;text-align:center;margin-top:14px}
+
+  /* ---------- 聊天页 ---------- */
+  #view-chat.active{display:flex;height:calc(100vh - 37px)}
+  .sidebar{width:240px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+  .sidebar-head{padding:14px}
+  .btn-new{width:100%;background:var(--purple);color:#fff;border-radius:8px;padding:10px}
+  .session-list{flex:1;overflow-y:auto;padding:0 10px}
+  .session-item{padding:10px 12px;border-radius:8px;margin-bottom:4px;cursor:pointer;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .session-item:hover{background:var(--bg)}
+  .session-item.current{background:var(--purple-light);color:var(--purple);font-weight:500}
+  .session-item .time{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+  .chat-main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between}
+  .topbar .title{font-weight:500;font-size:15px}
+  .topbar .title small{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
+  .topbar .actions button{background:none;color:var(--muted);padding:6px 10px;border-radius:6px;font-size:13px}
+  .topbar .actions button:hover{background:var(--bg);color:var(--text)}
+  .messages{flex:1;overflow-y:auto;padding:20px 24px}
+  .msg{display:flex;margin-bottom:18px;gap:10px;max-width:85%}
+  .msg.mine{margin-left:auto;flex-direction:row-reverse}
+  .avatar{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0}
+  .av-ds{background:#378ADD}.av-kimi{background:#1D9E75}.av-gpt{background:#0C447C}.av-gem{background:#639922}.av-host{background:#534AB7}.av-me{background:#D85A30}
+  .bubble-wrap{min-width:0}
+  .sender{font-size:12px;color:var(--muted);margin-bottom:4px}
+  .msg.mine .sender{text-align:right}
+  .bubble{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;line-height:1.7;font-size:14px;white-space:pre-wrap}
+  .msg.mine .bubble{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .bubble.summary{background:var(--purple-light);border-color:#AFA9EC}
+  .bubble.summary .sum-title{color:var(--purple);font-weight:500;margin-bottom:6px}
+  .typing{display:inline-flex;gap:4px;align-items:center;height:20px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:#B4B2A9;animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  .offline{color:#A32D2D;font-size:12px;background:#FCEBEB;border-radius:6px;padding:2px 8px;display:inline-block;margin-top:4px}
+
+  /* ---------- 输入区 ---------- */
+  .composer{background:#fff;border-top:1px solid var(--border);padding:12px 24px 14px}
+  .composer-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .mode-switch{display:flex;background:var(--bg);border-radius:8px;padding:3px}
+  .mode-switch button{padding:6px 14px;border-radius:6px;background:none;color:var(--muted);font-size:13px}
+  .mode-switch button.on{background:#fff;color:var(--purple);font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .member-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;background:#fff}
+  .member-chip.on{border-color:var(--purple);color:var(--purple);background:var(--purple-light)}
+  .member-chip .dot{width:8px;height:8px;border-radius:50%;background:#ccc}
+  .member-chip.on .dot{background:var(--purple)}
+  .member-chip select{border:none;padding:0;font-size:12px;color:var(--purple);background:transparent;max-width:120px}
+  .input-row{display:flex;gap:10px;align-items:flex-end}
+  .input-row textarea{flex:1;resize:none;height:44px;line-height:1.5}
+  .btn-send{background:var(--blue);color:#fff;border-radius:8px;padding:11px 22px;font-size:14px}
+  .btn-stop{background:#fff;color:#A32D2D;border:1px solid #F09595;border-radius:8px;padding:11px 16px;display:none}
+
+  /* ---------- 设置页 ---------- */
+  #view-settings.active{padding:30px 16px;display:block}
+  .settings-wrap{max-width:680px;margin:0 auto}
+  .settings-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:18px}
+  .settings-card h2{font-size:16px;font-weight:500;margin-bottom:4px}
+  .settings-card .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+  .api-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap}
+  .api-row:last-child{border-bottom:none}
+  .api-name{width:150px;font-weight:500;flex-shrink:0}
+  .api-status{font-size:12px;border-radius:6px;padding:2px 8px}
+  .st-ok{background:var(--teal-light);color:var(--teal)}
+  .st-no{background:var(--bg);color:var(--muted)}
+  .api-row input{flex:1;min-width:180px}
+  .btn-save{background:var(--teal);color:#fff;border-radius:8px;padding:9px 18px}
+  .form-line{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .form-line label{width:150px;color:var(--muted);font-size:13px;flex-shrink:0}
+  .switch{position:relative;width:42px;height:24px;background:#ccc;border-radius:12px;cursor:pointer;transition:.2s}
+  .switch.on{background:var(--teal)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on::after{left:21px}
+  .btn-danger{background:#fff;color:#A32D2D;border:1px solid #F09595;border-radius:8px;padding:9px 18px}
+  .back-link{display:inline-flex;align-items:center;gap:6px;color:var(--blue);background:none;font-size:14px;margin-bottom:14px;padding:6px 10px;border-radius:6px}
+  .back-link:hover{background:#fff}
+
+  @media (max-width:720px){
+    .sidebar{display:none}
+    .msg{max-width:95%}
+    .messages{padding:14px}
+    .composer{padding:10px 12px}
+    .api-name{width:100%}
+  }
+</style>
+</head>
+<body>
+<div class="mock-banner">※ 这是界面设计稿（示例数据），用于确认页面样子和操作流程，不是最终网站</div>
+
+<!-- ================= 登录页 ================= -->
+<div id="view-login" class="view active">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="logo-circle">桌</span>
+      <h1>AI 圆桌</h1>
+      <p>多个 AI 像群聊一样帮你讨论问题</p>
+    </div>
+    <div class="field">
+      <label>用户名</label>
+      <input type="text" id="login-user" placeholder="请输入用户名">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="login-pass" placeholder="请输入密码">
+    </div>
+    <div class="login-error" id="login-error">用户名或密码不正确，请重试</div>
+    <button class="btn-primary" onclick="doLogin()">登 录</button>
+    <div class="login-tip">密码由云端服务器验证 · 7 天内免登录</div>
+  </div>
+</div>
+
+<!-- ================= 聊天页 ================= -->
+<div id="view-chat" class="view">
+  <aside class="sidebar">
+    <div class="sidebar-head"><button class="btn-new" onclick="newSession()">＋ 新开一场讨论</button></div>
+    <div class="session-list" id="session-list"></div>
+  </aside>
+  <div class="chat-main">
+    <div class="topbar">
+      <div class="title" id="chat-title">周末去哪里旅游？<small>圆桌模式 · 4 个 AI 参与</small></div>
+      <div class="actions">
+        <button onclick="showView('settings')">设置</button>
+        <button onclick="showView('login')">退出登录</button>
+      </div>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <div class="composer-bar">
+        <div class="mode-switch">
+          <button id="mode-round" class="on" onclick="setMode('round')">圆桌模式</button>
+          <button id="mode-fast" onclick="setMode('fast')">快速模式</button>
+        </div>
+        <span style="color:var(--muted);font-size:12px">参与成员：</span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>DeepSeek
+          <select onclick="event.stopPropagation()"><option>深度思考版</option><option>普通对话版</option></select></span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>Kimi
+          <select onclick="event.stopPropagation()"><option>长思考版</option><option>标准版</option></select></span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>ChatGPT
+          <select onclick="event.stopPropagation()"><option>gpt-4o</option><option>o3</option></select></span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>Gemini
+          <select onclick="event.stopPropagation()"><option>Pro</option><option>Flash</option></select></span>
+      </div>
+      <div class="input-row">
+        <textarea id="chat-input" placeholder="输入你的问题，让 AI 们开始讨论……"></textarea>
+        <button class="btn-send" id="btn-send" onclick="sendMsg()">发 送</button>
+        <button class="btn-stop" id="btn-stop" onclick="stopDemo()">停 止</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 设置页 ================= -->
+<div id="view-settings" class="view">
+  <div class="settings-wrap">
+    <button class="back-link" onclick="showView('chat')">← 返回聊天</button>
+
+    <div class="settings-card">
+      <h2>AI 服务密钥配置</h2>
+      <div class="sub">填入各家的 API 密钥。密钥只保存在云端服务器，网页上仅显示状态，不会回显内容。</div>
+      <div class="api-row"><span class="api-name">DeepSeek</span><span class="api-status st-ok">已配置</span><input type="password" placeholder="输入新密钥可更换"><button class="btn-save">保存</button></div>
+      <div class="api-row"><span class="api-name">Kimi（月之暗面）</span><span class="api-status st-ok">已配置</span><input type="password" placeholder="输入新密钥可更换"><button class="btn-save">保存</button></div>
+      <div class="api-row"><span class="api-name">ChatGPT（OpenAI）</span><span class="api-status st-ok">已配置</span><input type="password" placeholder="输入新密钥可更换"><button class="btn-save">保存</button></div>
+      <div class="api-row"><span class="api-name">Gemini（谷歌）</span><span class="api-status st-no">未配置</span><input type="password" placeholder="粘贴 API 密钥"><button class="btn-save">保存</button></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>讨论设置</h2>
+      <div class="sub">默认的讨论方式，聊天页可临时调整。</div>
+      <div class="form-line"><label>默认讨论模式</label>
+        <select><option>圆桌模式（互相讨论后出综合方案）</option><option>快速模式（各答各的）</option></select></div>
+      <div class="form-line"><label>圆桌讨论轮数</label>
+        <select><option>1 轮</option><option selected>2 轮</option><option>3 轮</option></select></div>
+      <div class="form-line"><label>主持人角色</label>
+        <select><option selected>DeepSeek（深度思考版）</option><option>Kimi（长思考版）</option><option>ChatGPT（gpt-4o）</option><option>Gemini（Pro）</option></select></div>
+      <div class="form-line"><label>默认参与成员</label>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>DeepSeek</span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>Kimi</span>
+        <span class="member-chip on" onclick="toggleChip(this)"><span class="dot"></span>ChatGPT</span>
+        <span class="member-chip" onclick="toggleChip(this)"><span class="dot"></span>Gemini</span></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>模型启用开关</h2>
+      <div class="sub">临时关闭某家 AI（例如密钥欠费、服务故障时），不影响其他成员。</div>
+      <div class="form-line"><label>DeepSeek</label><span class="switch on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="form-line"><label>Kimi</label><span class="switch on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="form-line"><label>ChatGPT</label><span class="switch on" onclick="this.classList.toggle('on')"></span></div>
+      <div class="form-line"><label>Gemini</label><span class="switch" onclick="this.classList.toggle('on')"></span></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>用量统计（示例）</h2>
+      <div class="sub">按 API 返回的 token 用量估算费用。</div>
+      <div class="api-row"><span class="api-name">DeepSeek</span><span style="color:var(--muted)">本月调用 86 次 · 约 ¥1.2</span></div>
+      <div class="api-row"><span class="api-name">Kimi</span><span style="color:var(--muted)">本月调用 86 次 · 约 ¥0.8</span></div>
+      <div class="api-row"><span class="api-name">ChatGPT</span><span style="color:var(--muted)">本月调用 86 次 · 约 $0.9</span></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>账号安全</h2>
+      <div class="form-line"><label>修改密码</label><input type="password" placeholder="输入新密码" style="width:220px"><button class="btn-save">确认修改</button></div>
+      <div class="form-line"><label>数据维护</label><button class="btn-danger" onclick="alert('设计稿演示：实际会要求二次确认')">清空全部历史记录</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const sessions=[
+    {t:"周末去哪里旅游？",d:"今天 11:20",cur:true},
+    {t:"帮我对比三款家用投影仪",d:"昨天 21:05"},
+    {t:"孩子选兴趣班的建议",d:"11-09 15:40"},
+    {t:"年假去日本还是泰国",d:"11-07 09:12"},
+    {t:"房贷提前还款划算吗",d:"11-05 19:33"}
+  ];
+  function renderSessions(){
+    document.getElementById("session-list").innerHTML=sessions.map((s,i)=>
+      `<div class="session-item ${s.cur?"current":""}" onclick="pickSession(${i})">${s.t}<span class="time">${s.d}</span></div>`).join("");
+  }
+  function pickSession(i){sessions.forEach((s,j)=>s.cur=j===i);renderSessions();
+    document.getElementById("chat-title").firstChild.textContent=sessions[i].t+" ";}
+  function newSession(){document.getElementById("chat-input").focus();}
+
+  function showView(v){
+    document.querySelectorAll(".view").forEach(e=>e.classList.remove("active"));
+    document.getElementById("view-"+v).classList.add("active");
+    if(v==="chat"){document.querySelectorAll(".session-item")[0].scrollIntoView();}
+  }
+  function doLogin(){
+    const u=document.getElementById("login-user").value.trim();
+    const p=document.getElementById("login-pass").value.trim();
+    if(u&&p){showView("chat");}
+    else{document.getElementById("login-error").style.display="block";}
+  }
+  function setMode(m){
+    document.getElementById("mode-round").classList.toggle("on",m==="round");
+    document.getElementById("mode-fast").classList.toggle("on",m==="fast");
+    const sub=document.querySelector("#chat-title small");
+    sub.textContent=m==="round"?"圆桌模式 · 4 个 AI 参与":"快速模式 · 4 个 AI 参与";
+  }
+  function toggleChip(el){el.classList.toggle("on")}
+
+  const AV={ds:["av-ds","DeepSeek"],kimi:["av-kimi","Kimi"],gpt:["av-gpt","ChatGPT"],gem:["av-gem","Gemini"],host:["av-host","主持人 · 综合方案"]};
+  let msgSeq=[];
+  function addMsg(who,txt,cls){
+    const m=document.getElementById("messages");
+    const mine=who==="me";
+    const av=mine?"av-me":AV[who][0];
+    const name=mine?"我":AV[who][1];
+    const div=document.createElement("div");
+    div.className="msg"+(mine?" mine":"");
+    div.innerHTML=`<div class="avatar ${av}">${mine?"我":""}</div><div class="bubble-wrap">
+      <div class="sender">${name}</div>
+      <div class="bubble ${cls||""}">${cls==="summary"?`<div class="sum-title">综合方案</div>`:""}${txt}</div></div>`;
+    m.appendChild(div);m.scrollTop=m.scrollHeight;
+    return div;
+  }
+  function sendMsg(){
+    const input=document.getElementById("chat-input");
+    const txt=input.value.trim();
+    if(!txt){input.placeholder="请先输入你的问题";return;}
+    addMsg("me",txt);
+    input.value="";
+    document.getElementById("btn-send").style.display="none";
+    document.getElementById("btn-stop").style.display="inline-block";
+    demoDiscussion(txt);
+  }
+  function stopDemo(){
+    document.getElementById("btn-send").style.display="inline-block";
+    document.getElementById("btn-stop").style.display="none";
+  }
+  function demoDiscussion(q){
+    const steps=[
+      ["ds",`我建议选择**周边短途游**：车程 2 小时内的古镇或山里民宿，性价比高，适合放松。\n\n推荐方向：① 古镇类——乌镇、南浔；② 自然类——莫干山、四明山。人均预算 500~800 元。`],
+      ["kimi",`补充 DeepSeek 的建议：如果家里有小朋友，优先莫干山，民宿多带亲子设施；如果是两人出行，南浔古镇的夜景更值得住一晚。`],
+      ["gpt",`我更看重天气和人流数据：周末江南地区有小雨概率 40%，山区体验会打折扣。建议备选一个室内偏多的方案，比如苏州博物馆＋平江路。`],
+      ["gem",`综合交通角度：高铁 1 小时圈内的目的地体验最好。提醒一下，周末热门民宿价格会上浮 30%~50%，建议今晚就锁定房源。`],
+      ["ds",`回应 ChatGPT：如果下雨，可以把莫干山行程调整为"民宿＋室内茶室＋温泉"，雨景反而加分。风险可控。`],
+      ["host",`**共识**：周边 2 小时圈短途游，预算人均 600 元左右。\n\n**分歧**：雨天是否改道（ChatGPT 建议室内方案，DeepSeek 认为雨景民宿可行）。\n\n**最终建议**：首选莫干山民宿（周五晚下单锁价），若周五预报确有大雨，切换到"苏州博物馆＋平江路"的市区方案。两地均有高铁直达，出行灵活。`]
+    ];
+    let i=0;
+    let typingDiv=null;
+    function next(){
+      if(i>=steps.length){stopDemo();return;}
+      const [who,txt]=steps[i];
+      const els=Object.values(AV);
+      typingDiv=addTyping(who);
+      setTimeout(()=>{
+        typingDiv.remove();typingDiv=null;
+        addMsg(who,txt,who==="host"?"summary":"");
+        i++;setTimeout(next,700);
+      },900);
+    }
+    function addTyping(who){
+      const m=document.getElementById("messages");
+      const div=document.createElement("div");
+      div.className="msg";
+      div.innerHTML=`<div class="avatar ${AV[who][0]}"></div><div class="bubble-wrap">
+        <div class="sender">${AV[who][1]}</div>
+        <div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>`;
+      m.appendChild(div);m.scrollTop=m.scrollHeight;
+      return div;
+    }
+    next();
+  }
+
+  renderSessions();
+  addMsg("me","周末去哪里旅游？");
+  addMsg("ds","我建议选择周边短途游：车程 2 小时内的古镇或山里民宿，性价比高，适合放松。\n\n推荐方向：① 古镇类——乌镇、南浔；② 自然类——莫干山、四明山。人均预算 500~800 元。");
+  addMsg("kimi","补充 DeepSeek 的建议：如果家里有小朋友，优先莫干山，民宿多带亲子设施；如果是两人出行，南浔古镇的夜景更值得住一晚。");
+  addMsg("gpt","我更看重天气和人流数据：周末江南地区有小雨概率 40%，山区体验会打折扣。建议备选一个室内偏多的方案，比如苏州博物馆＋平江路。");
+  addMsg("gem","综合交通角度：高铁 1 小时圈内的目的地体验最好。提醒一下，周末热门民宿价格会上浮 30%~50%，建议今晚就锁定房源。");
+  addMsg("ds","回应 ChatGPT：如果下雨，可以把莫干山行程调整为「民宿＋室内茶室＋温泉」，雨景反而加分。风险可控。");
+  addMsg("host","**共识**：周边 2 小时圈短途游，预算人均 600 元左右。\n\n**分歧**：雨天是否改道（ChatGPT 建议室内方案，DeepSeek 认为雨景民宿可行）。\n\n**最终建议**：首选莫干山民宿（周五晚下单锁价），若周五预报确有大雨，切换到「苏州博物馆＋平江路」的市区方案。两地均有高铁直达，出行灵活。","summary");
+</script>
+</body>
+</html>

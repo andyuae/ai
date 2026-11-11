@@ -1,0 +1,21 @@
+# ===== 绝不能上传 GitHub 的敏感内容 =====
+
+# 数据库文件（含加密的 API 密钥和历史对话）
+backend/data/
+backend/test-data/
+*.db
+*.db-shm
+*.db-wal
+
+# 环境变量文件（含加密钥匙）
+.env
+
+# 日志和临时文件
+*.log
+server.log
+tmp/
+
+# ===== 冗余内容 =====
+
+# 依赖包（体积巨大，上传无意义）
+node_modules/
