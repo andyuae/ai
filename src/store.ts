@@ -28,7 +28,7 @@ const state = reactive({
   chatTitle: '新对话'
 })
 
-const currentModelSel: Record<string, string> = {}
+const currentModelSel = reactive<Record<string, string>>({})
 
 function effBaseUrl(key: string): string {
   return state.settings.baseUrls?.[key] || PROVIDERS[key].baseUrl
