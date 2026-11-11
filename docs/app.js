@@ -338,10 +338,22 @@ function renderSessions() {
     d.className = 'session-item' + (c.id === currentConvId ? ' current' : '');
     const stMap = { active: '', completed: '', stopped: '（已停止）' };
     d.innerHTML = `${esc(c.title)} <span class="st">${stMap[c.status] || ''}</span>
-      <span class="time">${fmtTime(c.updated_at)}</span>`;
+      <span class="time">${fmtTime(c.updated_at)}</span>
+      <button class="del-x" title="删除此会话">✕</button>`;
     d.onclick = () => openConversation(c.id);
+    d.querySelector('.del-x').onclick = (e) => { e.stopPropagation(); deleteConversation(c.id); };
     el.appendChild(d);
   });
+}
+
+async function deleteConversation(id) {
+  if (discussing && id === currentConvId) { alert('当前讨论进行中，请先点击"停止"'); return; }
+  const conv = conversations.find(c => c.id === id);
+  if (!confirm(`确定删除「${(conv && conv.title) || '该讨论'}」吗？\n全部消息将一并删除，不可恢复。`)) return;
+  const { error } = await sb.from('conversations').delete().eq('id', id);
+  if (error) { alert('删除失败：' + error.message); return; }
+  if (id === currentConvId) { currentConvId = null; currentMessages = []; newDraft(); }
+  await loadConversations();
 }
 
 async function openConversation(id) {
@@ -787,12 +799,7 @@ function exportCurrent() {
 
 async function deleteCurrent() {
   if (!currentConvId) { alert('请先选择一场讨论'); return; }
-  if (!confirm('确定删除这场讨论吗？全部消息将一并删除，不可恢复。')) return;
-  const { error } = await sb.from('conversations').delete().eq('id', currentConvId);
-  if (error) { alert('删除失败：' + error.message); return; }
-  currentConvId = null; currentMessages = [];
-  await loadConversations();
-  newDraft();
+  await deleteConversation(currentConvId);
 }
 
 async function changePasswordUI() {
