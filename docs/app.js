@@ -213,9 +213,12 @@ function renderProviderSettings() {
       <span class="api-name">${p.name}${p.oversea ? ' <span class="muted small">(海外)</span>' : ''}</span>
       <span class="api-status ${p.configured ? 'st-ok' : 'st-no'}">${p.configured ? '已配置' : '未配置'}</span>
       <input type="password" placeholder="${p.configured ? '输入新密钥可更换' : '粘贴 API 密钥'}" id="key-${p.key}">
-      <button class="btn-save" data-p="${p.key}">保存密钥</button>`;
+      <button class="btn-save" data-p="${p.key}">保存密钥</button>
+      <button class="btn-test" data-p="${p.key}" ${p.configured ? '' : 'disabled'}>测试连通</button>
+      <span class="api-test-result" id="test-${p.key}"></span>`;
     list.appendChild(row);
-    row.querySelector('button').onclick = () => saveProviderKey(p.key);
+    row.querySelector('.btn-save').onclick = () => saveProviderKey(p.key);
+    row.querySelector('.btn-test').onclick = () => testProvider(p.key);
 
     const sw = document.createElement('div');
     sw.className = 'form-line';
@@ -240,6 +243,63 @@ async function saveProviderKey(key) {
   input.value = '';
   await loadConfigs();
   alert('密钥已保存到云端数据库（仅你本人可读取）');
+}
+
+/* 一键测试某家 AI 的连通性：用已保存的密钥发一个极小请求（约几个 token，费用可忽略） */
+async function testProvider(key) {
+  const p = providers.find(x => x.key === key);
+  if (!p || !p.apiKey) { alert('请先保存该服务的 API 密钥'); return; }
+  const conf = PROVIDER_META[key];
+  const btn = document.querySelector(`.btn-test[data-p="${key}"]`);
+  const out = $('test-' + key);
+  const model = p.models[0];
+  btn.disabled = true;
+  btn.textContent = '测试中…';
+  out.className = 'api-test-result';
+  out.textContent = '正在连接 ' + conf.name + '……';
+  const started = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000); // 25 秒超时
+  try {
+    const res = await fetch(conf.baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p.apiKey },
+      body: JSON.stringify({
+        model, stream: false, max_tokens: 8,
+        messages: [{ role: 'user', content: '回复"连通成功"四个字' }]
+      }),
+      signal: ctrl.signal
+    });
+    if (res.ok) {
+      const sec = ((Date.now() - started) / 1000).toFixed(1);
+      out.className = 'api-test-result tr-ok';
+      out.textContent = `✅ 连通成功（${sec} 秒，模型 ${model}）`;
+    } else {
+      const body = await res.text().catch(() => '');
+      out.className = 'api-test-result tr-fail';
+      out.textContent = '❌ ' + friendlyTestError(res.status, body, conf.name);
+    }
+  } catch (e) {
+    out.className = 'api-test-result tr-fail';
+    out.textContent = e.name === 'AbortError'
+      ? '❌ 连接超时（25 秒无响应）——检查网络，海外服务需要相应的网络环境'
+      : '❌ 网络无法连接——' + conf.name + ' 的接口从你的网络环境不可达（海外服务常见，可先关闭该成员）';
+  } finally {
+    clearTimeout(timer);
+    btn.disabled = false;
+    btn.textContent = '测试连通';
+  }
+}
+
+/* 把接口报错翻译成普通人能看懂的话 */
+function friendlyTestError(status, body, name) {
+  const detail = (body || '').slice(0, 150);
+  if (status === 401 || status === 403) return `密钥无效或没有权限（HTTP ${status}）——请检查密钥是否复制完整、是否已过期`;
+  if (status === 402) return `账户余额不足（HTTP 402）——请到 ${name} 官网充值后再试`;
+  if (status === 404) return `接口或模型不存在（HTTP 404）——${detail}`;
+  if (status === 429) return `请求太频繁被限流（HTTP 429）——稍等片刻再试`;
+  if (status >= 500) return `${name} 服务器暂时故障（HTTP ${status}）——稍后再试`;
+  return `接口返回错误（HTTP ${status}）——${detail}`;
 }
 
 async function loadUsage() {

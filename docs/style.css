@@ -103,6 +103,12 @@ input:focus,textarea:focus{border-color:var(--blue)}
 .api-row input{flex:1;min-width:180px}
 .btn-save{background:var(--teal);color:#fff;border-radius:8px;padding:9px 18px}
 .btn-save:disabled{opacity:.6}
+.btn-test{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 16px;flex-shrink:0}
+.btn-test:disabled{opacity:.5}
+.btn-test:hover{border-color:var(--teal);color:var(--teal)}
+.api-test-result{flex-basis:100%;font-size:13px;line-height:1.6}
+.tr-ok{color:var(--teal)}
+.tr-fail{color:#d9534f}
 .form-line{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
 .form-line label{width:150px;color:var(--muted);font-size:13px;flex-shrink:0}
 .switch{position:relative;width:42px;height:24px;background:#ccc;border-radius:12px;cursor:pointer;transition:.2s;display:inline-block}
