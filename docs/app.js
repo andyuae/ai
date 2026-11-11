@@ -945,7 +945,7 @@ async function memberTurn({ convId, provider, model, messages, col }) {
   try {
     const { content, usage } = await callAI({
       provider, model,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: userPrompt }],
+      messages,   // 上层已用 buildMessages 构造好：系统提示 + 该 AI 视角历史 + 当前消息（含附件）
       onDelta: (delta, all) => {
         st.text = all;
         st.bubble.textContent = all;
