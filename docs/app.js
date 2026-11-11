@@ -518,6 +518,57 @@ function userBubbleHtml(content) {
 }
 
 /* ================= 消息渲染 ================= */
+/* 一键复制（兼容旧浏览器降级方案），成功后按钮短暂显示"已复制" */
+async function copyText(t, btn) {
+  t = String(t || '');
+  try { await navigator.clipboard.writeText(t); }
+  catch (_) {
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    ta.remove();
+  }
+  if (btn) {
+    const old = btn.textContent;
+    btn.textContent = '已复制'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1200);
+  }
+}
+
+/* 给一条消息挂"复制 / 编辑重发"操作按钮（用户消息两者都有，AI 回答只有复制） */
+function attachMsgActions(div, m) {
+  const wrap = div.querySelector('.bubble-wrap');
+  if (!wrap) return;
+  const bar = document.createElement('div');
+  bar.className = 'msg-actions';
+  const plain = m.sender === 'user' ? (parseAtts(m.content).text || '') : (m.content || '');
+  if (m.sender === 'user') {
+    const c = document.createElement('button');
+    c.className = 'act-btn'; c.textContent = '复制';
+    c.onclick = () => copyText(plain, c);
+    bar.appendChild(c);
+    if (!discussing) {
+      const ed = document.createElement('button');
+      ed.className = 'act-btn'; ed.textContent = '编辑重发';
+      ed.onclick = () => {
+        const { text, atts } = parseAtts(m.content);
+        $('chat-input').value = text || '';
+        pendingAttachments = (atts || []).slice();
+        renderAttPreview();
+        $('chat-input').focus();
+      };
+      bar.appendChild(ed);
+    }
+  } else if (m.content) {
+    const c = document.createElement('button');
+    c.className = 'act-btn'; c.textContent = '复制';
+    c.onclick = () => copyText(m.content, c);
+    bar.appendChild(c);
+  }
+  if (bar.children.length) wrap.appendChild(bar);
+}
+
 function senderLabel(m) {
   if (m.sender === 'user') return { name: '我', av: 'av-me' };
   if (m.sender === 'host') return { name: '主持人 · 综合方案', av: 'av-host' };
@@ -538,6 +589,7 @@ function appendMessageFromDb(m) {
     <div class="bubble-wrap"><div class="sender">${esc(s.name)}</div>
     <div class="bubble ${summary ? 'summary' : ''}">${summary ? '<div class="sum-title">综合方案</div>' : ''}${m.sender === 'user' ? userBubbleHtml(m.content) : esc(m.content)}
     ${m.status === 'error' ? '<span class="err">（本次调用失败）</span>' : ''}</div></div>`;
+  attachMsgActions(div, m);
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
   return div;
@@ -920,16 +972,24 @@ function makeFastCol(grid, provider, model) {
   const meta = PROVIDER_META[provider] || { name: provider };
   const prov = providers.find(p => p.key === provider) || {};
   const modelTxt = model ? (prov.modelLabel?.[model] || model) : '';
+  const holder = { text: '' };   // 流式过程中实时更新，复制按钮随时可复制当前内容
   const col = document.createElement('div');
   col.className = 'fast-col';
-  col.innerHTML = `<div class="fast-head">
-      <span class="fdot" style="background:${AVATAR_COLOR[provider] || '#888'}"></span>
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'fast-copy'; copyBtn.title = '复制这条回答'; copyBtn.textContent = '复制';
+  copyBtn.onclick = e => { e.stopPropagation(); copyText(holder.text, copyBtn); };
+  const head = document.createElement('div');
+  head.className = 'fast-head';
+  head.innerHTML = `<span class="fdot" style="background:${AVATAR_COLOR[provider] || '#888'}"></span>
       <span class="fname">${esc(meta.name || provider)}</span>
-      <span class="fm">${esc(modelTxt)}</span>
-    </div>
-    <div class="fast-body"><span class="typing"><i></i><i></i><i></i></span></div>`;
+      <span class="fm">${esc(modelTxt)}</span>`;
+  head.appendChild(copyBtn);
+  const body = document.createElement('div');
+  body.className = 'fast-body';
+  body.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  col.appendChild(head); col.appendChild(body);
   grid.appendChild(col);
-  return { bubble: col.querySelector('.fast-body'), col };
+  return { bubble: body, col, holder };
 }
 
 function transcriptFor(curProvider) {
@@ -976,9 +1036,9 @@ async function memberTurn({ convId, provider, model, messages, col }) {
       messages,   // 上层已用 buildMessages 构造好：系统提示 + 该 AI 视角历史 + 当前消息（含附件）
       onDelta: (delta, all) => {
         st.text = all;
+        if (st.holder) st.holder.text = all;
         st.bubble.textContent = all;
-        const box = $('messages');
-        if (box.scrollHeight - box.scrollTop - box.clientHeight < 120) box.scrollTop = box.scrollHeight;
+        followStreamScroll();   // 用户没有主动上翻时，自动滚到最新内容
       }
     });
     st.bubble.textContent = content;
@@ -1001,8 +1061,16 @@ async function memberTurn({ convId, provider, model, messages, col }) {
   }
 }
 
-function setDiscussingUI(on) {
-  $('btn-send').style.display = on ? 'none' : 'inline-block';
+/* 自动跟随滚动：AI 回答过程中，只要用户没有主动往上翻，就一直滚到最新内容；
+   用户一旦上翻超过 250px 就暂停跟随，翻回底部后自动恢复 */
+let streamFollow = true;
+function followStreamScroll() {
+  if (!streamFollow) return;
+  const box = $('messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+function setDiscussingUI(on) {  $('btn-send').style.display = on ? 'none' : 'inline-block';
   $('btn-stop').style.display = on ? 'inline-block' : 'none';
 }
 
@@ -1023,6 +1091,7 @@ async function sendQuestion() {
   if (!participants.length) { alert('请至少勾选一位 AI（需在设置页配置密钥并启用）'); return; }
 
   discussing = true; stopFlag = false; aborters = [];
+  streamFollow = true;   // 新消息开始时恢复自动跟随滚动
   setDiscussingUI(true);
 
   try {
@@ -1076,6 +1145,7 @@ function appendUserBubble(content) {
   div.className = 'msg mine';
   div.innerHTML = `<div class="avatar av-me">我</div>
     <div class="bubble-wrap"><div class="sender">我</div><div class="bubble">${userBubbleHtml(content)}</div></div>`;
+  attachMsgActions(div, { sender: 'user', content });
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
@@ -1146,6 +1216,11 @@ $('file-input').onchange = e => {
 };
 $('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+});
+/* 用户在 AI 回答期间上翻（离底部超过 250px）就暂停自动跟随，翻回底部自动恢复 */
+$('messages').addEventListener('scroll', () => {
+  const box = $('messages');
+  streamFollow = box.scrollHeight - box.scrollTop - box.clientHeight < 250;
 });
 
 /* 登录状态监听（30 天免登录由 Supabase 自动续期） */
