@@ -134,6 +134,16 @@ async function loadConfigs() {
       apiKey: row.api_key || null
     };
   });
+  /* 一次性修正：新默认是"配了密钥的成员全部启用"，把之前被关掉的开关自动恢复。
+     只在本地执行一次（记录标记），之后设置页的开关仍由用户自己控制 */
+  if (!localStorage.getItem('enabledAll4')) {
+    const off = providers.filter(p => p.configured && !p.enabled);
+    localStorage.setItem('enabledAll4', '1');
+    if (off.length) {
+      for (const p of off) { try { await upsertProvider(p.key, { enabled: true }); } catch (_) {} }
+      return loadConfigs(); // 重新加载一次，让开关状态生效
+    }
+  }
   currentModelSel = {};
   providers.forEach(p => { if (p.enabled && p.models.length) currentModelSel[p.key] = p.models[0]; });
   renderChips();
