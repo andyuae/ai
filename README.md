@@ -1,45 +1,33 @@
-# AI 圆桌 —— 项目结构与部署说明（开发者备忘）
+# AI 圆桌 —— 项目结构与部署说明
+
+多 AI 群聊讨论网站：提问后多个 AI（DeepSeek / Kimi / ChatGPT / Gemini）像群聊一样各抒己见、互相讨论，最后由主持人汇总《综合方案》。
+
+## 线上架构（当前生效）
+
+```
+GitHub Pages（本仓库 docs/ 目录）      Supabase 云端服务
+├── index.html                        ├── 用户认证（邮箱+密码，加密保存）
+├── style.css                         ├── 云数据库（会话/消息/密钥配置/用量）
+├── app.js     业务逻辑全在前端       └── 行级安全 RLS（数据按用户隔离）
+└── config.js  连接配置 + AI 服务商信息
+```
+
+- 浏览器直连各家 AI 的官方 API（已验证 DeepSeek / Kimi 支持跨域直连）
+- 界面文件同步到 GitHub 后自动生效（Pages 从 `docs/` 目录发布）
+- 数据库初始化：在 Supabase SQL Editor 运行 `supabase-schema.sql`
 
 ## 目录结构
 
 ```
-ai-roundtable/
-├── frontend/          # 静态前端（部署到 GitHub Pages）
-│   ├── index.html
-│   ├── style.css
-│   ├── app.js
-│   └── config.js     # API_BASE 指向后端地址
-└── backend/           # Node.js 后端（云端托管）
-    ├── server.js
-    ├── package.json
-    ├── .env.example   # 环境变量模板（复制为 .env）
-    ├── src/
-    │   ├── db.js          # SQLite 初始化 + 密钥 AES 加密
-    │   ├── auth.js        # bcrypt + JWT
-    │   ├── providers.js   # 四家 AI 统一适配（OpenAI 兼容协议）
-    │   └── discussion.js  # 圆桌讨论编排（首答→讨论→主持人汇总）
-    └── data/          # SQLite 数据库文件（自动创建，每日备份）
+├── docs/                  # 网站（GitHub Pages 发布目录）
+│   ├── index.html / style.css / app.js / config.js
+├── supabase-schema.sql    # Supabase 建表脚本（SQL Editor 运行一次）
+├── supabase-schema-rollback.sql
+└── backend/               # 旧版自托管后端（Node.js + SQLite，已弃用，仅留档）
 ```
 
-## 本地启动
+## 旧版本地启动（留档参考）
 
 ```bash
-cd backend
-npm install
-npm start          # 打开 http://localhost:3000 即是完整网站（后端托管前端）
+cd backend && npm install && npm start   # http://localhost:3000
 ```
-
-默认管理员：admin / 已删除（首次启动自动创建，登录后请立即改密）。
-
-## 上线步骤（阶段 7）
-
-1. 后端：部署到云托管平台，设置环境变量（PORT、JWT_SECRET、KEY_ENC_SECRET、ALLOWED_ORIGIN）
-2. 前端：`frontend/config.js` 中 API_BASE 填后端正式地址
-3. 用户把 frontend/ 全部文件上传到 GitHub 仓库，开启 Pages
-4. 验证：登录 → 配密钥 → 发起一场真实圆桌讨论
-
-## 已知待办
-
-- [ ] 用真实 API 密钥做端到端测试（阶段 6）
-- [ ] 云端部署（阶段 7）
-- [ ] 数据库每日备份脚本（部署时在托管平台配置定时任务，复制 data/airoundtable.db）

@@ -17,17 +17,18 @@
       <p>多个 AI 像群聊一样帮你讨论问题</p>
     </div>
     <div class="field">
-      <label>用户名</label>
-      <input type="text" id="login-user" placeholder="请输入用户名" autocomplete="username">
+      <label>邮箱</label>
+      <input type="email" id="login-user" placeholder="请输入邮箱" autocomplete="email">
     </div>
     <div class="field">
       <label>密码</label>
       <input type="password" id="login-pass" placeholder="请输入密码" autocomplete="current-password">
     </div>
-    <div class="login-error" id="login-error">用户名或密码不正确，请重试</div>
+    <div class="login-error" id="login-error">邮箱或密码不正确，请重试</div>
     <div class="login-error" id="login-neterr" style="display:none">无法连接服务器，请稍后再试</div>
     <button class="btn-primary" id="btn-login">登 录</button>
-    <div class="login-tip">密码由云端服务器验证 · 7 天内免登录</div>
+    <button class="btn-primary" id="btn-signup" style="display:none">创建新账号</button>
+    <div class="login-tip" id="login-toggle">首次使用？<a href="javascript:void(0)" id="link-toggle">点这里创建账号</a> · 密码由云端数据库加密保存 · 30 天内免登录</div>
   </div>
 </div>
 
@@ -73,7 +74,7 @@
 
     <div class="settings-card">
       <h2>AI 服务密钥配置</h2>
-      <div class="sub">填入各家的 API 密钥。密钥加密后只保存在云端服务器，网页上仅显示状态，不会回显内容。</div>
+      <div class="sub">填入各家的 API 密钥。密钥保存在云端数据库（仅你本人登录后可读取），网页上仅显示状态，不会回显内容。</div>
       <div id="provider-list"></div>
     </div>
 
@@ -111,6 +112,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>
