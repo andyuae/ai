@@ -30,13 +30,13 @@ window.PROVIDERS = {
   kimi: {
     name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
-    models: ['kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k'],
-    modelLabel: { 'kimi-k2.6': 'K2.6（推荐·可看图）', 'kimi-k2.5': 'K2.5', 'moonshot-v1-128k': '标准长文本版' },
+    models: ['kimi-k3.1-pro', 'kimi-k3', 'kimi-k2.6'],
+    modelLabel: { 'kimi-k3.1-pro': 'K3.1 Pro（推荐·可看图）', 'kimi-k3': 'K3', 'kimi-k2.6': 'K2.6（部分密钥无权限）' },
     price: { in: 4, out: 21 },
     webSearch: true,
     searchPrice: 0.03,
-    visionModel: 'kimi-k2.6',
-    visionModels: ['kimi-k2.6', 'kimi-k3', 'kimi-k3.1-pro']
+    visionModel: 'kimi-k3.1-pro',
+    visionModels: ['kimi-k3.1-pro', 'kimi-k3']
   },
   openai: {
     name: 'ChatGPT',
