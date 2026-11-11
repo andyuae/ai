@@ -33,8 +33,8 @@ body {
 /* ===== 聊天布局 ===== */
 .chat-layout { display: flex; height: 100% }
 .sidebar {
-  width: 240px; background: #fff; border-right: 1px solid #e5e9ef;
-  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  width: 210px; background: #fff; border-right: 1px solid #e5e9ef;
+  padding: 12px; display: flex; flex-direction: column; gap: 10px; flex: none;
 }
 .session-list { flex: 1; overflow-y: auto }
 .session-item {
@@ -60,7 +60,7 @@ body {
 .topbar .title small { color: #8a94a0; font-weight: 400; margin-left: 8px }
 .topbar .actions .el-button + .el-button { margin-left: 4px }
 
-.messages { flex: 1; overflow-y: auto; padding: 18px 22px }
+.messages { flex: 1; overflow-y: auto; padding: 16px 16px }
 
 /* 用户消息气泡 */
 .msg { display: flex; gap: 10px; margin-bottom: 16px }
@@ -95,10 +95,13 @@ body {
   border-color: #2f54eb; color: #2f54eb;
 }
 
-/* AI 并排分块 */
+/* AI 并排分块：按屏幕宽度固定列数，宽屏一律 4 列并排 */
 .fast-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px; margin-bottom: 16px; align-items: start;
+}
+@media (min-width: 1000px) {
+  .fast-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) }
 }
 .fast-col {
   background: #fff; border: 1px solid #e5e9ef; border-radius: 12px;
@@ -110,7 +113,8 @@ body {
   margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #e5e9ef;
 }
 .fast-head .fdot { width: 10px; height: 10px; border-radius: 50%; flex: none }
-.fast-head .fm { font-size: 11px; color: #8a94a0; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.fast-head .fname { flex: none }
+.fast-head .fm { font-size: 11px; color: #8a94a0; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-left: auto }
 .fast-body { font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; flex: 1 }
 .fast-foot { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e5e9ef }
 .typing { display: inline-flex; gap: 4px; padding: 6px 0 }
@@ -175,5 +179,5 @@ body {
   .chat-layout { flex-direction: column }
   .sidebar { width: 100%; max-height: 160px; border-right: none; border-bottom: 1px solid #e5e9ef }
   .bubble-wrap { max-width: 88% }
-  .fast-grid { grid-template-columns: 1fr }
+  .fast-grid { grid-template-columns: minmax(0, 1fr) }
 }
