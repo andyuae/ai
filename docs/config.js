@@ -40,22 +40,20 @@ window.PROVIDERS = {
   },
   openai: {
     name: 'ChatGPT',
-    baseUrl: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
-    modelLabel: { 'gpt-4o': 'GPT-4o', 'gpt-4o-mini': 'GPT-4o mini', 'o3-mini': 'o3-mini' },
+    baseUrl: 'https://4sapi.com/v1',
+    models: ['gpt-5.6', 'gpt-5.6-mini', 'gpt-4o'],
+    modelLabel: { 'gpt-5.6': 'GPT-5.6', 'gpt-5.6-mini': 'GPT-5.6 mini（快）', 'gpt-4o': 'GPT-4o' },
     price: { in: 20, out: 80 },
-    oversea: true,
-    visionModel: 'gpt-4o',
-    visionModels: ['gpt-4o', 'gpt-4o-mini']
+    visionModel: 'gpt-5.6',
+    visionModels: ['gpt-5.6', 'gpt-5.6-mini', 'gpt-4o']
   },
   gemini: {
     name: 'Gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    models: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    modelLabel: { 'gemini-2.5-pro': 'Pro（强）', 'gemini-2.5-flash': 'Flash（快）' },
+    baseUrl: 'https://4sapi.com/v1',
+    models: ['gemini-3.6-pro', 'gemini-3.6-flash', 'gemini-2.5-flash'],
+    modelLabel: { 'gemini-3.6-pro': 'Gemini 3.6 Pro（强）', 'gemini-3.6-flash': 'Gemini 3.6 Flash（快）', 'gemini-2.5-flash': 'Gemini 2.5 Flash' },
     price: { in: 10, out: 40 },
-    oversea: true,
-    visionModel: 'gemini-2.5-flash',
-    visionModels: ['gemini-2.5-pro', 'gemini-2.5-flash']
+    visionModel: 'gemini-3.6-flash',
+    visionModels: ['gemini-3.6-pro', 'gemini-3.6-flash', 'gemini-2.5-flash']
   }
 };

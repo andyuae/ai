@@ -38,6 +38,14 @@ let currentModelSel = {};  // provider -> model（临时选择）
 let signupMode = false;    // 登录页：注册模式
 let pendingAttachments = []; // 待发送附件 [{kind:'image'|'file', name, dataUrl?|text?}]
 
+/* 每个用户的接口地址覆盖：{ provider: 'https://xxx/v1' }（存于 settings.data.baseUrls）
+   用中转站（如 4sapi）时，ChatGPT/Gemini 的请求发往中转站而不是官方地址 */
+let baseUrls = {};
+function confFor(key) {
+  const meta = PROVIDER_META[key];
+  return baseUrls[key] ? Object.assign({}, meta, { baseUrl: baseUrls[key] }) : meta;
+}
+
 /* ================= 登录 / 注册 ================= */
 function setLoginError(msg) {
   const el = $('login-error');
@@ -94,7 +102,8 @@ function logout(calledByUser) {
 
 async function enterApp(u) {
   user = u;
-  await Promise.all([loadConfigs(), loadSettings(), loadConversations()]);
+  await loadSettings();          // 先读偏好（含接口地址覆盖、模型列表覆盖）
+  await Promise.all([loadConfigs(), loadConversations()]);
   const hasKey = providers.some(p => p.configured && p.enabled);
   showView('chat');
   if (!hasKey) {
@@ -115,9 +124,11 @@ async function loadConfigs() {
   data.forEach(r => { map[r.provider] = r; });
   providers = Object.entries(PROVIDER_META).map(([key, meta]) => {
     const row = map[key] || {};
+    const relay = (settings && settings.relayModels && settings.relayModels[key]) || null;
     return {
-      key, name: meta.name, models: meta.models, modelLabel: meta.modelLabel,
-      oversea: !!meta.oversea,
+      key, name: meta.name, oversea: !!meta.oversea,
+      models: (relay && relay.length) ? relay : meta.models,
+      modelLabel: (relay && relay.length) ? {} : meta.modelLabel,
       configured: !!row.api_key,
       enabled: row.enabled !== false,
       apiKey: row.api_key || null
@@ -136,13 +147,23 @@ async function upsertProvider(provider, patch) {
 }
 
 const DEFAULT_SETTINGS = {
-  default_participants: []
+  default_participants: [],
+  baseUrls: {},      // provider -> 自定义接口地址（中转站）
+  relayModels: {}    // provider -> 从服务拉取到的真实模型列表
 };
 
 async function loadSettings() {
   const { data, error } = await sb.from('settings').select('*').eq('user_id', user.id).maybeSingle();
   if (error) dbErr('读取偏好设置', error);
   settings = Object.assign({}, DEFAULT_SETTINGS, (data && data.data) || {});
+  baseUrls = settings.baseUrls || {};
+}
+
+async function persistSettings() {
+  const { error } = await sb.from('settings').upsert(
+    { user_id: user.id, data: settings, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' });
+  if (error) dbErr('保存偏好设置', error);
 }
 
 async function loadConversations() {
@@ -173,10 +194,19 @@ function renderProviderSettings() {
       <input type="password" placeholder="${p.configured ? '输入新密钥可更换' : '粘贴 API 密钥'}" id="key-${p.key}">
       <button class="btn-save" data-p="${p.key}">保存密钥</button>
       <button class="btn-test" data-p="${p.key}" ${p.configured ? '' : 'disabled'}>测试连通</button>
-      <span class="api-test-result" id="test-${p.key}"></span>`;
+      <span class="api-test-result" id="test-${p.key}"></span>
+      <div class="api-sub">
+        <label class="muted small">接口地址</label>
+        <input type="text" id="base-${p.key}" placeholder="${esc(confFor(p.key).baseUrl)}" value="${esc(baseUrls[p.key] || '')}">
+        <button class="btn-base" data-p="${p.key}">保存地址</button>
+        <button class="btn-models" data-p="${p.key}" ${p.configured ? '' : 'disabled'}>拉取模型列表</button>
+        <span class="muted small">（用中转站密钥时，请把地址改为中转站给的地址，再拉取真实可用模型）</span>
+      </div>`;
     list.appendChild(row);
     row.querySelector('.btn-save').onclick = () => saveProviderKey(p.key);
     row.querySelector('.btn-test').onclick = () => testProvider(p.key);
+    row.querySelector('.btn-base').onclick = () => saveBaseUrl(p.key);
+    row.querySelector('.btn-models').onclick = () => fetchModelList(p.key);
 
     const sw = document.createElement('div');
     sw.className = 'form-line';
@@ -197,8 +227,8 @@ function renderProviderSettings() {
 const KEY_PREFIX_HINT = {
   deepseek: { prefix: 'sk-', name: 'DeepSeek' },
   kimi: { prefix: 'sk-', name: 'Kimi（月之暗面）' },
-  openai: { prefix: 'sk-', name: 'ChatGPT（OpenAI）' },
-  gemini: { prefix: 'AIza', name: 'Gemini（Google AI Studio）' }
+  openai: { prefix: 'sk-', name: 'ChatGPT（中转站或 OpenAI 官方）' },
+  gemini: { prefix: 'sk-', altPrefix: 'AIza', name: 'Gemini（中转站 sk- 开头；Google 官方 AIza 开头）' }
 };
 
 async function saveProviderKey(key) {
@@ -206,8 +236,8 @@ async function saveProviderKey(key) {
   let val = input.value.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ''); // 去掉首尾引号和所有空白
   if (!val) { alert('请先粘贴密钥'); return; }
   const hint = KEY_PREFIX_HINT[key];
-  if (hint && !val.startsWith(hint.prefix)) {
-    const ok = confirm(`提醒：${hint.name} 的密钥通常以 "${hint.prefix}" 开头，\n而你粘贴的密钥不是这个格式（可能是复制错了服务，或混入了多余文字）。\n\n仍要按原样保存吗？`);
+  if (hint && !val.startsWith(hint.prefix) && !(hint.altPrefix && val.startsWith(hint.altPrefix))) {
+    const ok = confirm(`提醒：${hint.name} 的密钥通常以 "${hint.altPrefix || hint.prefix}" 开头，\n而你粘贴的密钥不是这个格式（可能是复制错了服务，或混入了多余文字）。\n\n仍要按原样保存吗？`);
     if (!ok) return;
   }
   await upsertProvider(key, { api_key: val, enabled: true });
@@ -216,12 +246,63 @@ async function saveProviderKey(key) {
   alert('密钥已保存到云端数据库（仅你本人可读取）');
 }
 
+/* 保存某家服务的自定义接口地址（中转站），留空则恢复默认官方地址 */
+async function saveBaseUrl(key) {
+  const input = $('base-' + key);
+  let val = (input.value || '').trim().replace(/\/+$/, '');
+  if (val && !/^https?:\/\//i.test(val)) {
+    alert('接口地址需要以 https:// 开头，例如：https://4sapi.com/v1');
+    return;
+  }
+  if (val) baseUrls[key] = val; else delete baseUrls[key];
+  settings.baseUrls = baseUrls;
+  await persistSettings();
+  await loadConfigs();
+  alert(val ? '接口地址已保存，请再点"拉取模型列表"获取该服务的真实模型' : '已恢复默认官方接口地址');
+}
+
+/* 从服务商（官方或中转站）拉取真实可用的模型列表，替换界面上的候选模型 */
+async function fetchModelList(key) {
+  const p = providers.find(x => x.key === key);
+  if (!p || !p.apiKey) { alert('请先保存该服务的 API 密钥'); return; }
+  const conf = confFor(key);
+  const btn = document.querySelector(`.btn-models[data-p="${key}"]`);
+  const out = $('test-' + key);
+  btn.disabled = true;
+  btn.textContent = '获取中…';
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    const res = await fetch(conf.baseUrl + '/models', {
+      headers: { Authorization: 'Bearer ' + p.apiKey },
+      signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text().catch(() => '')).slice(0, 120));
+    const json = await res.json();
+    const ids = (json.data || []).map(m => m.id).filter(Boolean).sort();
+    if (!ids.length) throw new Error('服务返回了空模型列表');
+    settings.relayModels = settings.relayModels || {};
+    settings.relayModels[key] = ids;
+    await persistSettings();
+    await loadConfigs();
+    out.className = 'api-test-result tr-ok';
+    out.textContent = `✅ 获取到 ${ids.length} 个模型，已在聊天页模型下拉框中显示`;
+  } catch (e) {
+    out.className = 'api-test-result tr-fail';
+    out.textContent = '❌ 拉取模型列表失败：' + (e.message || e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '拉取模型列表';
+  }
+}
+
 /* 一键测试某家 AI 的连通性：用已保存的密钥发一个极小请求（约几个 token，费用可忽略）
    会依次尝试该服务的候选模型，第一个测试成功的即为可用模型（并自动设为默认） */
 async function testProvider(key) {
   const p = providers.find(x => x.key === key);
   if (!p || !p.apiKey) { alert('请先保存该服务的 API 密钥'); return; }
-  const conf = PROVIDER_META[key];
+  const conf = confFor(key);
   const btn = document.querySelector(`.btn-test[data-p="${key}"]`);
   const out = $('test-' + key);
   btn.disabled = true;
@@ -705,7 +786,7 @@ async function streamChatOnce({ conf, prov, model, messages, tools, onDelta, sig
 }
 
 async function callAI({ provider, model, messages, onDelta }) {
-  const conf = PROVIDER_META[provider];
+  const conf = confFor(provider);
   const prov = providers.find(p => p.key === provider);
   if (!prov || !prov.apiKey) throw new Error(`${conf.name} 未配置 API 密钥`);
   const ctrl = new AbortController();

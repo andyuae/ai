@@ -132,6 +132,11 @@ input:focus,textarea:focus{border-color:var(--blue)}
 .btn-test{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 16px;flex-shrink:0}
 .btn-test:disabled{opacity:.5}
 .btn-test:hover{border-color:var(--teal);color:var(--teal)}
+.api-sub{display:flex;align-items:center;gap:8px;width:100%;flex-wrap:wrap;padding-left:2px}
+.api-sub label{flex-shrink:0}
+.api-sub input[type="text"]{flex:1;min-width:200px;padding:7px 10px;font-size:13px}
+.btn-base,.btn-models{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:13px;flex-shrink:0}
+.btn-base:hover,.btn-models:hover{border-color:var(--teal);color:var(--teal)}
 .api-test-result{flex-basis:100%;font-size:13px;line-height:1.6}
 .tr-ok{color:var(--teal)}
 .tr-fail{color:#d9534f}
