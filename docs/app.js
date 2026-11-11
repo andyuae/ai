@@ -444,18 +444,51 @@ function currentParticipants() {
     .map(c => ({ provider: c.dataset.provider, model: currentModelSel[c.dataset.provider] }));
 }
 
-/* ================= AI 直连调用（OpenAI 兼容流式接口） ================= */
-async function callAI({ provider, model, messages, onDelta }) {
-  const conf = PROVIDER_META[provider];
-  const prov = providers.find(p => p.key === provider);
-  if (!prov || !prov.apiKey) throw new Error(`${conf.name} 未配置 API 密钥`);
-  const ctrl = new AbortController();
-  aborters.push(ctrl);
+/* ================= AI 直连调用（OpenAI 兼容流式接口 + 自动联网搜索） ================= */
+
+/* 联网搜索工具声明：Kimi 用官方内置工具（服务端代为搜索），DeepSeek 走标准 function 工具 */
+function webSearchTools(provider) {
+  if (provider === 'kimi') {
+    return [{ type: 'builtin_function', function: { name: '$web_search' } }];
+  }
+  return [{
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: '搜索互联网获取实时信息。当问题涉及最新资讯、实时数据（价格、天气、赛事、新闻等）或你不确定的近期事实时，调用本工具搜索后再回答。',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: '搜索关键词，简洁明确' } },
+        required: ['query']
+      }
+    }
+  }];
+}
+
+/* DeepSeek 官方自研搜索接口（POST /v1/tools/search，¥5/1000 次成功请求） */
+async function deepseekWebSearch(query, apiKey, signal) {
+  const res = await fetch('https://api.deepseek.com/v1/tools/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+    body: JSON.stringify({ query: String(query).slice(0, 128), count: 8, need_content: false }),
+    signal
+  });
+  if (!res.ok) throw new Error('搜索接口错误 HTTP ' + res.status);
+  const data = await res.json();
+  return (data.results || []).map(r => ({
+    title: r.title, url: r.url, summary: r.summary, date: r.date, site: r.site_name
+  }));
+}
+
+/* 单轮流式请求：返回正文、用量，以及（若有）工具调用请求 */
+async function streamChatOnce({ conf, prov, model, messages, tools, onDelta, signal }) {
+  const body = { model, messages, stream: true };
+  if (tools) body.tools = tools;
   const res = await fetch(conf.baseUrl + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + prov.apiKey },
-    body: JSON.stringify({ model, messages, stream: true }),
-    signal: ctrl.signal
+    body: JSON.stringify(body),
+    signal
   });
   if (!res.ok) {
     let detail = '';
@@ -464,7 +497,8 @@ async function callAI({ provider, model, messages, onDelta }) {
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '', content = '', usage = null;
+  let buf = '', content = '', usage = null, finish = null;
+  const toolCalls = [];
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -478,11 +512,76 @@ async function callAI({ provider, model, messages, onDelta }) {
       if (data === '[DONE]') continue;
       try {
         const json = JSON.parse(data);
-        const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
-        if (delta) { content += delta; onDelta && onDelta(delta, content); }
+        const ch = json.choices && json.choices[0];
+        if (ch && ch.delta) {
+          const delta = ch.delta.content;
+          if (delta) { content += delta; onDelta && onDelta(delta, content); }
+          if (ch.delta.tool_calls) {
+            for (const tc of ch.delta.tool_calls) {
+              const i = tc.index != null ? tc.index : 0;
+              toolCalls[i] = toolCalls[i] || { id: '', type: 'function', function: { name: '', arguments: '' } };
+              if (tc.id) toolCalls[i].id = tc.id;
+              if (tc.function) {
+                if (tc.function.name) toolCalls[i].function.name += tc.function.name;
+                if (tc.function.arguments) toolCalls[i].function.arguments += tc.function.arguments;
+              }
+            }
+          }
+        }
+        if (ch && ch.finish_reason) finish = ch.finish_reason;
         if (json.usage) usage = { pt: json.usage.prompt_tokens || 0, ct: json.usage.completion_tokens || 0 };
       } catch (_) { /* 忽略不完整行 */ }
     }
+  }
+  return { content, usage, toolCalls: toolCalls.filter(Boolean), finish };
+}
+
+async function callAI({ provider, model, messages, onDelta }) {
+  const conf = PROVIDER_META[provider];
+  const prov = providers.find(p => p.key === provider);
+  if (!prov || !prov.apiKey) throw new Error(`${conf.name} 未配置 API 密钥`);
+  const ctrl = new AbortController();
+  aborters.push(ctrl);
+  const tools = conf.webSearch ? webSearchTools(provider) : null;
+  let convo = messages.slice();
+  let content = '', usage = null;
+
+  /* 联网搜索循环：AI 决定要搜索时，自动执行搜索并把结果喂回给它，直到给出最终回答 */
+  for (let hop = 0; hop < 4; hop++) {
+    const r = await streamChatOnce({ conf, prov, model, messages: convo, tools, onDelta, signal: ctrl.signal });
+    if (r.usage) {
+      usage = usage ? { pt: usage.pt + r.usage.pt, ct: usage.ct + r.usage.ct } : r.usage;
+    }
+    const wantsSearch = r.finish === 'tool_calls' && r.toolCalls.length > 0;
+    if (!tools || !wantsSearch) { content = r.content; break; }
+
+    /* 执行每一笔搜索调用 */
+    const toolMsgs = [];
+    for (const tc of r.toolCalls) {
+      let args = {};
+      try { args = JSON.parse(tc.function.arguments || '{}'); } catch (_) {}
+      const query = String(args.query || args.search_query || args.keyword || '').slice(0, 128);
+      let resultStr;
+      if (provider === 'kimi') {
+        // Kimi 内置工具：把调用参数原样回传，Kimi 服务端会代为执行真正的搜索
+        resultStr = tc.function.arguments || '{}';
+      } else {
+        try {
+          const results = await deepseekWebSearch(query, prov.apiKey, ctrl.signal);
+          resultStr = JSON.stringify(results);
+        } catch (e) {
+          resultStr = JSON.stringify({ error: '搜索暂不可用：' + e.message });
+        }
+      }
+      toolMsgs.push({ role: 'tool', tool_call_id: tc.id || ('call_' + toolMsgs.length), content: resultStr });
+    }
+    convo = convo.concat([
+      { role: 'assistant', content: r.content || null, tool_calls: r.toolCalls },
+      ...toolMsgs
+    ]);
+    // 下一轮：模型基于搜索结果生成最终回答（继续流式输出到同一个气泡）
+    onDelta && onDelta('', '');
+    content = '';
   }
   if (!usage) usage = { pt: 0, ct: Math.round(content.length / 1.5) };
   return { content, usage };

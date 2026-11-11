@@ -6,25 +6,33 @@
  */
 window.SUPABASE_URL = 'https://dkmdttuwzaghiehvkfua.supabase.co';
 window.SUPABASE_KEY = 'sb_publishable_NNxHIOFD-BeoXJG50C5c3g_kpKhKw9i';
+// 备用公开钥匙（两把均可用于本项目的公开访问，由行级权限规则保证安全）
+// window.SUPABASE_KEY = 'sb_publishable_hdxytdfwapk_TUcZQIGS-HkvIMK77R6z7n_dlCqYt4w';
 
 /**
- * AI 服务商配置（原后端 providers.js 前移）
+ * AI 服务商配置
  * price: 每百万 token 人民币（估算用）；oversea: 国内网络可能无法直连
+ * webSearch: 支持联网搜索（AI 需要时自动搜索，无需手动开关）
+ * searchPrice: 每次成功搜索的价格（人民币）
  */
 window.PROVIDERS = {
   deepseek: {
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
-    modelLabel: { 'deepseek-chat': '普通对话版', 'deepseek-reasoner': '深度思考版' },
-    price: { in: 2, out: 8 }
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    modelLabel: { 'deepseek-flash': '快速版（日常够用）', 'deepseek-v4-pro': '专业版（更强）' },
+    price: { in: 2, out: 8 },
+    webSearch: true,
+    searchPrice: 0.005
   },
   kimi: {
     name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
-    models: ['kimi-k2-0905-preview', 'moonshot-v1-8k'],
-    modelLabel: { 'kimi-k2-0905-preview': 'K2 最新版', 'moonshot-v1-8k': '标准版' },
-    price: { in: 4, out: 21 }
+    models: ['kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k'],
+    modelLabel: { 'kimi-k2.6': 'K2.6（推荐）', 'kimi-k2.5': 'K2.5', 'moonshot-v1-128k': '标准长文本版' },
+    price: { in: 4, out: 21 },
+    webSearch: true,
+    searchPrice: 0.03
   },
   openai: {
     name: 'ChatGPT',
