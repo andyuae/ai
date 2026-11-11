@@ -794,8 +794,36 @@ async function callAI({ provider, model, messages, onDelta }) {
   /* 消息中带图片时，自动切换到该家支持视觉的模型 */
   const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === 'image_url'));
   if (hasImages && conf.visionModels && !conf.visionModels.includes(model)) model = conf.visionModel;
-  /* DeepSeek 视觉模型（实验版）暂不叠加搜索工具，避免不兼容 */
-  const tools = conf.webSearch && !(hasImages && provider === 'deepseek') ? webSearchTools(provider) : null;
+
+  /* 始终联网：先用 DeepSeek 搜索接口查实时资料（四家统一），把结果注入系统提示后再回答。
+     搜索失败不阻塞回答，只是当次没有联网资料 */
+  try {
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    let q = '';
+    if (lastUser) {
+      q = typeof lastUser.content === 'string' ? lastUser.content
+        : (Array.isArray(lastUser.content) ? ((lastUser.content.find(c => c.type === 'text') || {}).text || '') : '');
+    }
+    q = String(q).replace(/\s+/g, ' ').trim().slice(0, 100);
+    if (q) {
+      const dsKey = (providers.find(p => p.key === 'deepseek') || {}).apiKey;
+      if (dsKey) {
+        const results = await deepseekWebSearch(q, dsKey, ctrl.signal);
+        if (results && results.length) {
+          const today = new Date().toLocaleDateString('zh-CN');
+          const block = `\n\n【${today} 实时网络搜索结果（供参考，请结合这些最新资料回答；引用时注明来源）】\n`
+            + results.map(r => `• ${r.title}${r.site ? '（' + r.site + '）' : ''}${r.date ? ' ' + r.date : ''}\n  ${r.url}\n  ${r.summary || ''}`).join('\n');
+          messages = messages.slice();
+          const sysIdx = messages.findIndex(m => m.role === 'system');
+          if (sysIdx >= 0) messages[sysIdx] = Object.assign({}, messages[sysIdx], { content: messages[sysIdx].content + block });
+          else messages = [{ role: 'system', content: block.trim() }].concat(messages);
+        }
+      }
+    }
+  } catch (_) { /* 搜索失败不影响正常回答 */ }
+
+  /* 搜索已统一在上方完成，不再向各家模型传工具，避免重复搜索产生额外费用 */
+  const tools = null;
   let convo = messages.slice();
   let content = '', usage = null;
 
@@ -988,7 +1016,7 @@ async function sendQuestion() {
   const input = $('chat-input');
   const text = input.value.trim();
   const atts = pendingAttachments.slice();
-  if (!text && !atts.length) { input.placeholder = '请输入消息，或点 📎 添加附件'; return; }
+  if (!text && !atts.length) { input.placeholder = '请输入消息，或点绿色 ＋ 添加附件'; return; }
   if (discussing) return;
 
   const participants = currentParticipants();
