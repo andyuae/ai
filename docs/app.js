@@ -370,7 +370,23 @@ async function openConversation(id) {
   $('chat-sub').textContent = `${mode === 'roundtable' ? '圆桌模式' : '快速模式'} · ${((conv && conv.participants) || []).length} 个 AI 参与`;
   const box = $('messages');
   box.innerHTML = '';
-  currentMessages.forEach(appendMessageFromDb);
+  if (conv && conv.mode === 'fast') {
+    /* 快速模式历史：用户消息一条，之后各 AI 独立回答合并为并排分块 */
+    let grid = null;
+    currentMessages.forEach(m => {
+      if (m.sender === 'user') { grid = null; appendMessageFromDb(m); }
+      else if (m.sender === 'assistant') {
+        if (!grid) grid = makeFastGrid();
+        const st = makeFastCol(grid, m.provider, m.model);
+        if (m.status === 'error') st.bubble.innerHTML = '<span class="err">（本次调用失败）</span>';
+        else st.bubble.textContent = m.content || '';
+      } else {
+        appendMessageFromDb(m);
+      }
+    });
+  } else {
+    currentMessages.forEach(appendMessageFromDb);
+  }
   box.scrollTop = box.scrollHeight;
 }
 
@@ -622,6 +638,8 @@ async function saveMessage(m) {
 }
 
 /* ================= 圆桌讨论编排 ================= */
+const AVATAR_COLOR = { deepseek: '#378ADD', kimi: '#1D9E75', openai: '#0C447C', gemini: '#639922', host: '#534AB7', me: '#D85A30' };
+
 function makeStreamBubble(provider, model, isHost) {
   const s = senderLabel({ sender: isHost ? 'host' : 'assistant', provider, model });
   const box = $('messages');
@@ -635,6 +653,32 @@ function makeStreamBubble(provider, model, isHost) {
   return { div, bubble: div.querySelector('.bubble'), text: '' };
 }
 
+/* 快速模式：并排分块展示，每个 AI 一块 */
+function makeFastGrid() {
+  const box = $('messages');
+  const grid = document.createElement('div');
+  grid.className = 'fast-grid';
+  box.appendChild(grid);
+  box.scrollTop = box.scrollHeight;
+  return grid;
+}
+
+function makeFastCol(grid, provider, model) {
+  const meta = PROVIDER_META[provider] || { name: provider };
+  const prov = providers.find(p => p.key === provider) || {};
+  const modelTxt = model ? (prov.modelLabel?.[model] || model) : '';
+  const col = document.createElement('div');
+  col.className = 'fast-col';
+  col.innerHTML = `<div class="fast-head">
+      <span class="fdot" style="background:${AVATAR_COLOR[provider] || '#888'}"></span>
+      <span class="fname">${esc(meta.name || provider)}</span>
+      <span class="fm">${esc(modelTxt)}</span>
+    </div>
+    <div class="fast-body"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  grid.appendChild(col);
+  return { bubble: col.querySelector('.fast-body'), col };
+}
+
 function transcriptFor(curProvider) {
   return currentMessages.map(m => {
     if (m.sender === 'user') return `【用户】${m.content}`;
@@ -643,8 +687,8 @@ function transcriptFor(curProvider) {
   }).join('\n\n');
 }
 
-async function memberTurn({ convId, provider, model, roundNo, system, userPrompt, isHost }) {
-  const st = makeStreamBubble(provider, model, isHost);
+async function memberTurn({ convId, provider, model, roundNo, system, userPrompt, isHost, col }) {
+  const st = col || makeStreamBubble(provider, model, isHost);
   try {
     const { content, usage } = await callAI({
       provider, model,
@@ -725,13 +769,24 @@ async function sendQuestion() {
     const um = await saveMessage({ conversation_id: currentConvId, sender: 'user', content: text });
     currentMessages.push({ id: um, conversation_id: currentConvId, sender: 'user', content: text, status: 'done' });
 
-    /* 第 0 轮：并行独立作答 */
-    addPhaseTip('—— 第 1 轮：各成员独立作答 ——');
-    await Promise.all(participants.map(p => memberTurn({
-      convId: currentConvId, provider: p.provider, model: p.model, roundNo: 0,
-      system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。用户提出了一个问题，请给出你的独立分析和建议。用中文回答，观点鲜明、有条理，控制在 300 字以内。`,
-      userPrompt: `用户的问题：${text}`
-    })));
+    /* 第 0 轮：并行独立作答（快速模式用并排分块展示） */
+    if (mode === 'fast') {
+      addPhaseTip('—— 快速模式：各成员独立作答 ——');
+      const grid = makeFastGrid();
+      await Promise.all(participants.map(p => memberTurn({
+        convId: currentConvId, provider: p.provider, model: p.model, roundNo: 0,
+        col: makeFastCol(grid, p.provider, p.model),
+        system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。用户提出了一个问题，请给出你的独立分析和建议。用中文回答，观点鲜明、有条理，控制在 300 字以内。`,
+        userPrompt: `用户的问题：${text}`
+      })));
+    } else {
+      addPhaseTip('—— 第 1 轮：各成员独立作答 ——');
+      await Promise.all(participants.map(p => memberTurn({
+        convId: currentConvId, provider: p.provider, model: p.model, roundNo: 0,
+        system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。用户提出了一个问题，请给出你的独立分析和建议。用中文回答，观点鲜明、有条理，控制在 300 字以内。`,
+        userPrompt: `用户的问题：${text}`
+      })));
+    }
 
     /* 圆桌模式：互相讨论 N 轮 */
     if (mode === 'roundtable' && !stopFlag) {

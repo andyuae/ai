@@ -67,6 +67,16 @@ input:focus,textarea:focus{border-color:var(--blue)}
 .bubble.summary .sum-title{color:var(--purple);font-weight:500;margin-bottom:6px}
 .bubble .err{color:var(--red);font-size:12px}
 .phase-tip{text-align:center;color:var(--muted);font-size:12px;margin:10px 0}
+
+/* ---------- 快速模式：并排分块 ---------- */
+.fast-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:10px 0}
+.fast-col{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 14px;min-width:0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.fast-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed var(--border)}
+.fast-head .fdot{width:10px;height:10px;border-radius:50%;flex:none}
+.fast-head .fm{font-size:11px;color:var(--muted);font-weight:400;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fast-body{font-size:13px;line-height:1.75;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+@media(min-width:1100px){.fast-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:640px){.fast-grid{grid-template-columns:1fr}}
 .typing{display:inline-flex;gap:4px;align-items:center;height:20px}
 .typing i{width:6px;height:6px;border-radius:50%;background:#B4B2A9;animation:blink 1.2s infinite}
 .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
