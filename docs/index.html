@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 圆桌 · 多 AI 群聊讨论</title>
+<title>AI 群聊 · 一条消息同时问多个 AI</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,9 +12,9 @@
 <div id="view-login" class="view active">
   <div class="login-card">
     <div class="login-logo">
-      <span class="logo-circle">桌</span>
-      <h1>AI 圆桌</h1>
-      <p>多个 AI 像群聊一样帮你讨论问题</p>
+      <span class="logo-circle">群</span>
+      <h1>AI 群聊</h1>
+      <p>一条消息，同时发给多个 AI，各自独立回答</p>
     </div>
     <div class="field">
       <label>邮箱</label>
@@ -35,12 +35,12 @@
 <!-- ================= 聊天页 ================= -->
 <div id="view-chat" class="view">
   <aside class="sidebar">
-    <div class="sidebar-head"><button class="btn-new" id="btn-new">＋ 新开一场讨论</button></div>
+    <div class="sidebar-head"><button class="btn-new" id="btn-new">＋ 新开对话</button></div>
     <div class="session-list" id="session-list"></div>
   </aside>
   <div class="chat-main">
     <div class="topbar">
-      <div class="title"><span id="chat-title">新讨论</span><small id="chat-sub"></small></div>
+      <div class="title"><span id="chat-title">新对话</span><small id="chat-sub"></small></div>
       <div class="actions">
         <button id="btn-export">导出</button>
         <button id="btn-del">删除</button>
@@ -51,15 +51,14 @@
     <div class="messages" id="messages"></div>
     <div class="composer">
       <div class="composer-bar">
-        <div class="mode-switch">
-          <button id="mode-round" class="on">圆桌模式</button>
-          <button id="mode-fast">快速模式</button>
-        </div>
-        <span class="muted small">参与成员：</span>
+        <span class="muted small">发给：</span>
         <div id="member-chips" class="chips"></div>
       </div>
+      <div class="att-preview" id="att-preview"></div>
       <div class="input-row">
-        <textarea id="chat-input" placeholder="输入你的问题，让 AI 们开始讨论……（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn-attach" id="btn-attach" title="添加图片或文件">📎</button>
+        <input type="file" id="file-input" multiple style="display:none">
+        <textarea id="chat-input" placeholder="输入消息，同时发给所有 AI……（Enter 发送，Shift+Enter 换行；可点 📎 附图片/文件）"></textarea>
         <button class="btn-send" id="btn-send">发 送</button>
         <button class="btn-stop" id="btn-stop" style="display:none">停 止</button>
       </div>
@@ -76,19 +75,6 @@
       <h2>AI 服务密钥配置</h2>
       <div class="sub">填入各家的 API 密钥。密钥保存在云端数据库（仅你本人登录后可读取），网页上仅显示状态，不会回显内容。保存后可点「测试连通」一键验证密钥是否可用。</div>
       <div id="provider-list"></div>
-    </div>
-
-    <div class="settings-card">
-      <h2>讨论设置</h2>
-      <div class="sub">默认的讨论方式，聊天页可临时调整。</div>
-      <div class="form-line"><label>默认讨论模式</label>
-        <select id="set-mode"><option value="roundtable">圆桌模式（互相讨论后出综合方案）</option><option value="fast">快速模式（各答各的）</option></select></div>
-      <div class="form-line"><label>圆桌讨论轮数</label>
-        <select id="set-rounds"><option value="1">1 轮</option><option value="2">2 轮</option><option value="3">3 轮</option></select></div>
-      <div class="form-line"><label>主持人角色</label>
-        <select id="set-host"></select></div>
-      <div class="form-line"><label>默认参与成员</label><div id="set-members" class="chips"></div></div>
-      <div class="form-line"><button class="btn-save" id="btn-save-settings">保存讨论设置</button></div>
     </div>
 
     <div class="settings-card">

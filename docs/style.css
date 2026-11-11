@@ -99,6 +99,19 @@ input:focus,textarea:focus{border-color:var(--blue)}
 .input-row textarea{flex:1;resize:none;height:44px;line-height:1.5}
 .btn-send{background:var(--blue);color:#fff;border-radius:8px;padding:11px 22px;font-size:14px}
 .btn-send:disabled{opacity:.5}
+.btn-attach{background:var(--bg);border-radius:8px;padding:9px 12px;font-size:17px;line-height:1}
+.btn-attach:hover{background:var(--border)}
+
+/* ---------- 附件 ---------- */
+.att-preview{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.att-preview:empty{display:none}
+.att-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:12px;max-width:260px}
+.att-chip img{width:34px;height:34px;object-fit:cover;border-radius:5px}
+.att-chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att-chip .rm{cursor:pointer;color:var(--muted);font-size:14px;flex:none}
+.att-chip .rm:hover{color:var(--red)}
+.att-thumb{max-width:160px;max-height:120px;border-radius:8px;display:block;margin:6px 0 2px;cursor:zoom-in}
+.att-file{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border-radius:6px;padding:3px 8px;font-size:12px;color:var(--muted);margin:4px 6px 0 0}
 .btn-stop{background:#fff;color:var(--red);border:1px solid #F09595;border-radius:8px;padding:11px 16px}
 
 /* ---------- 设置页 ---------- */

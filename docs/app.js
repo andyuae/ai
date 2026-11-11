@@ -1,6 +1,7 @@
 /**
- * app.js —— AI 圆桌前端逻辑（云端直连版）
+ * app.js —— AI 群聊前端逻辑（云端直连版）
  * 架构：GitHub Pages 静态界面 + Supabase 云数据库 + 浏览器直连各家 AI API
+ * 交互：一条消息（可带图片/文件附件）同时发给多个 AI，各自独立作答、并排分块展示
  * 依赖：supabase.min.js（CDN）、config.js（连接配置与 AI 服务商信息）
  */
 
@@ -30,12 +31,12 @@ let settings = null;       // 偏好设置（settings.data）
 let conversations = [];    // 会话列表
 let currentConvId = null;  // 当前会话
 let currentMessages = [];  // 当前会话消息（含本地新增）
-let mode = 'roundtable';
-let discussing = false;    // 是否正在讨论
+let discussing = false;    // 是否正在等待 AI 回答
 let stopFlag = false;      // 停止标记
 let aborters = [];         // 进行中的 fetch 控制器
 let currentModelSel = {};  // provider -> model（临时选择）
 let signupMode = false;    // 登录页：注册模式
+let pendingAttachments = []; // 待发送附件 [{kind:'image'|'file', name, dataUrl?|text?}]
 
 /* ================= 登录 / 注册 ================= */
 function setLoginError(msg) {
@@ -135,8 +136,6 @@ async function upsertProvider(provider, patch) {
 }
 
 const DEFAULT_SETTINGS = {
-  default_mode: 'roundtable', default_rounds: 2,
-  host_provider: 'deepseek', host_model: 'deepseek-reasoner',
   default_participants: []
 };
 
@@ -144,47 +143,6 @@ async function loadSettings() {
   const { data, error } = await sb.from('settings').select('*').eq('user_id', user.id).maybeSingle();
   if (error) dbErr('读取偏好设置', error);
   settings = Object.assign({}, DEFAULT_SETTINGS, (data && data.data) || {});
-  mode = settings.default_mode || 'roundtable';
-  renderChips();
-  $('set-mode').value = settings.default_mode;
-  $('set-rounds').value = String(settings.default_rounds);
-  const hostSel = $('set-host');
-  hostSel.innerHTML = '';
-  providers.forEach(p => p.models.forEach(m => {
-    const o = document.createElement('option');
-    o.value = p.key + '|' + m;
-    o.textContent = `${p.name}（${p.modelLabel[m] || m}）`;
-    if (p.key === settings.host_provider && m === settings.host_model) o.selected = true;
-    hostSel.appendChild(o);
-  }));
-  const setMembers = $('set-members');
-  setMembers.innerHTML = '';
-  providers.forEach(p => {
-    const chip = document.createElement('span');
-    const isOn = (settings.default_participants || []).some(x => x.provider === p.key);
-    chip.className = 'member-chip' + (isOn && p.configured && p.enabled ? ' on' : '');
-    chip.dataset.provider = p.key;
-    chip.innerHTML = `<span class="dot"></span>${p.name}`;
-    chip.onclick = () => chip.classList.toggle('on');
-    setMembers.appendChild(chip);
-  });
-}
-
-async function saveSettings() {
-  const host = $('set-host').value.split('|');
-  const members = [...$('set-members').querySelectorAll('.member-chip.on')]
-    .map(c => ({ provider: c.dataset.provider, model: (providers.find(p => p.key === c.dataset.provider).models[0]) }));
-  const data = {
-    default_mode: $('set-mode').value,
-    default_rounds: Number($('set-rounds').value),
-    host_provider: host[0],
-    host_model: host[1],
-    default_participants: members
-  };
-  const { error } = await sb.from('settings').upsert({ user_id: user.id, data }, { onConflict: 'user_id' });
-  if (error) dbErr('保存偏好设置', error);
-  await loadSettings();
-  alert('讨论设置已保存');
 }
 
 async function loadConversations() {
@@ -364,14 +322,17 @@ async function openConversation(id) {
   const { data, error } = await sb.from('messages').select('*').eq('conversation_id', id).order('id');
   if (error) dbErr('读取消息', error);
   currentMessages = data;
-  mode = (conv && conv.mode) || 'roundtable';
+  const convMode = (conv && conv.mode) || 'solo';
   renderChips();
-  $('chat-title').textContent = conv ? conv.title : '讨论';
-  $('chat-sub').textContent = `${mode === 'roundtable' ? '圆桌模式' : '快速模式'} · ${((conv && conv.participants) || []).length} 个 AI 参与`;
+  $('chat-title').textContent = conv ? conv.title : '对话';
+  $('chat-sub').textContent = `${((conv && conv.participants) || []).length} 个 AI 同时回答`;
   const box = $('messages');
   box.innerHTML = '';
-  if (conv && conv.mode === 'fast') {
-    /* 快速模式历史：用户消息一条，之后各 AI 独立回答合并为并排分块 */
+  if (convMode === 'roundtable') {
+    /* 旧版圆桌会话：保留群聊气泡样式 */
+    currentMessages.forEach(appendMessageFromDb);
+  } else {
+    /* 群聊/快速会话：用户消息 + 各 AI 并排分块 */
     let grid = null;
     currentMessages.forEach(m => {
       if (m.sender === 'user') { grid = null; appendMessageFromDb(m); }
@@ -384,8 +345,6 @@ async function openConversation(id) {
         appendMessageFromDb(m);
       }
     });
-  } else {
-    currentMessages.forEach(appendMessageFromDb);
   }
   box.scrollTop = box.scrollHeight;
 }
@@ -394,12 +353,53 @@ function newDraft() {
   if (discussing) { alert('当前讨论进行中，请先点击"停止"'); return; }
   currentConvId = null; currentMessages = [];
   $('messages').innerHTML = '';
-  $('chat-title').textContent = '新讨论';
+  $('chat-title').textContent = '新对话';
   $('chat-sub').textContent = '';
   $('chat-input').value = '';
   renderSessions();
   renderChips();
   $('chat-input').focus();
+}
+
+/* ================= 附件存取与解析 ================= */
+/* 附件以标记形式随消息内容存入数据库：[[附件:图片|名称|dataURL]] / [[附件:文件|名称|文本]] */
+function serializeAtts(text, atts) {
+  const marks = (atts || []).map(a =>
+    `[[附件:${a.kind === 'image' ? '图片' : '文件'}|${a.name}|${a.kind === 'image' ? a.dataUrl : a.text}]]`);
+  return [text || '', ...marks].filter(Boolean).join('\n');
+}
+
+function parseAtts(content) {
+  const atts = [];
+  const text = String(content || '').replace(/\[\[附件:(图片|文件)\|([^\]|]*)\|([\s\S]*?)\]\]/g,
+    (_, kind, name, payload) => {
+      atts.push(kind === '图片'
+        ? { kind: 'image', name, dataUrl: payload }
+        : { kind: 'file', name, text: payload });
+      return '';
+    }).trim();
+  return { text, atts };
+}
+
+/* 给 AI 看的历史消息：附件只留名字提示，不带大数据 */
+function attSummary(content) {
+  const { text, atts } = parseAtts(content);
+  const notes = atts.map(a => a.kind === 'image' ? `[图片：${a.name}]` : `[附件文件：${a.name}]`).join(' ');
+  return [text, notes].filter(Boolean).join(' ');
+}
+
+/* 用户消息气泡内容（含附件渲染） */
+function userBubbleHtml(content) {
+  const { text, atts } = parseAtts(content);
+  let html = text ? esc(text) : '';
+  atts.forEach(a => {
+    if (a.kind === 'image') {
+      html += `<a href="${esc(a.dataUrl)}" target="_blank"><img class="att-thumb" src="${esc(a.dataUrl)}" alt="${esc(a.name)}"></a>`;
+    } else {
+      html += `<span class="att-file">📄 ${esc(a.name)}</span>`;
+    }
+  });
+  return html || '（空消息）';
 }
 
 /* ================= 消息渲染 ================= */
@@ -421,7 +421,7 @@ function appendMessageFromDb(m) {
   const summary = m.sender === 'host';
   div.innerHTML = `<div class="avatar ${s.av}">${m.sender === 'user' ? '我' : ''}</div>
     <div class="bubble-wrap"><div class="sender">${esc(s.name)}</div>
-    <div class="bubble ${summary ? 'summary' : ''}">${summary ? '<div class="sum-title">综合方案</div>' : ''}${esc(m.content)}
+    <div class="bubble ${summary ? 'summary' : ''}">${summary ? '<div class="sum-title">综合方案</div>' : ''}${m.sender === 'user' ? userBubbleHtml(m.content) : esc(m.content)}
     ${m.status === 'error' ? '<span class="err">（本次调用失败）</span>' : ''}</div></div>`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
@@ -442,11 +442,12 @@ function addPhaseTip(text) {
 function renderChips() {
   const chips = $('member-chips');
   chips.innerHTML = '';
+  const defaults = (settings && settings.default_participants) || [];
   providers.forEach(p => {
     const chip = document.createElement('span');
     const usable = p.configured && p.enabled;
-    const isDefault = (settings && (settings.default_participants || []).some(x => x.provider === p.key));
-    chip.className = 'member-chip' + (usable && (isDefault || !settings) ? ' on' : '') + (usable ? '' : ' disabled');
+    const isDefault = defaults.some(x => x.provider === p.key);
+    chip.className = 'member-chip' + (usable && (!settings || !defaults.length || isDefault) ? ' on' : '') + (usable ? '' : ' disabled');
     if (usable) chip.dataset.provider = p.key;
     chip.innerHTML = `<span class="dot"></span>${p.name} <select>${p.models.map(m =>
       `<option value="${m}" ${currentModelSel[p.key] === m ? 'selected' : ''}>${p.modelLabel[m] || m}</option>`).join('')}</select>`;
@@ -456,21 +457,126 @@ function renderChips() {
     chip.onclick = () => { if (usable) chip.classList.toggle('on'); };
     chips.appendChild(chip);
   });
-  updateModeUI();
-}
-
-function setMode(m) { mode = m; updateModeUI(); }
-function updateModeUI() {
-  $('mode-round').classList.toggle('on', mode === 'roundtable');
-  $('mode-fast').classList.toggle('on', mode === 'fast');
-  const sub = $('chat-sub').textContent;
-  if (/圆桌模式|快速模式/.test(sub)) $('chat-sub').textContent = sub.replace(/圆桌模式|快速模式/, mode === 'roundtable' ? '圆桌模式' : '快速模式');
 }
 
 function currentParticipants() {
   return [...document.querySelectorAll('#member-chips .member-chip.on[data-provider]')]
     .map(c => ({ provider: c.dataset.provider, model: currentModelSel[c.dataset.provider] }));
 }
+
+/* ================= 附件选择与处理 ================= */
+const ATT_IMAGE_MAX = 4 * 1024 * 1024;   // 单张图片上限 4MB
+const ATT_TEXT_MAX = 60000;              // 单个文件提取文本上限（字符）
+const ATT_COUNT_MAX = 6;                 // 单条消息附件数量上限
+
+function isImageFile(f) { return /^image\/(png|jpe?g|gif|webp|bmp)$/i.test(f.type); }
+function isTextLikeFile(f) {
+  if (f.type && f.type.startsWith('text/')) return true;
+  return /\.(txt|md|markdown|csv|tsv|json|xml|yaml|yml|log|js|ts|jsx|tsx|py|java|c|cpp|h|cs|go|rs|rb|php|html|htm|css|sql|sh|bat|ini|conf|toml|env)$/i.test(f.name);
+}
+
+function readAsDataURL(f) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = () => rej(new Error('读取失败'));
+    r.readAsDataURL(f);
+  });
+}
+function readAsText(f) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = () => rej(new Error('读取失败'));
+    r.readAsText(f);
+  });
+}
+
+/* 懒加载 pdf.js（仅attach PDF时才下载） */
+let pdfjsReady = null;
+function loadPdfJs() {
+  if (pdfjsReady) return pdfjsReady;
+  pdfjsReady = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = () => reject(new Error('PDF 解析组件加载失败（网络问题）'));
+    document.head.appendChild(s);
+  });
+  return pdfjsReady;
+}
+
+/* 懒加载 mammoth.js（解析 Word .docx） */
+let mammothReady = null;
+function loadMammoth() {
+  if (mammothReady) return mammothReady;
+  mammothReady = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+    s.onload = () => resolve(window.mammoth);
+    s.onerror = () => reject(new Error('Word 解析组件加载失败（网络问题）'));
+    document.head.appendChild(s);
+  });
+  return mammothReady;
+}
+
+async function extractPdfText(f) {
+  const lib = await loadPdfJs();
+  const buf = await f.arrayBuffer();
+  const pdf = await lib.getDocument({ data: buf }).promise;
+  let out = '';
+  const pages = Math.min(pdf.numPages, 50);
+  for (let i = 1; i <= pages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    out += tc.items.map(it => it.str).join(' ') + '\n';
+    if (out.length > ATT_TEXT_MAX) break;
+  }
+  return out.slice(0, ATT_TEXT_MAX);
+}
+
+async function processFile(f) {
+  if (pendingAttachments.length >= ATT_COUNT_MAX) { alert(`一条消息最多 ${ATT_COUNT_MAX} 个附件`); return; }
+  try {
+    if (isImageFile(f)) {
+      if (f.size > ATT_IMAGE_MAX) { alert(`图片 ${f.name} 超过 4MB，请压缩后再试`); return; }
+      const dataUrl = await readAsDataURL(f);
+      pendingAttachments.push({ kind: 'image', name: f.name, dataUrl });
+    } else if (/\.pdf$/i.test(f.name)) {
+      const text = (await extractPdfText(f)).trim();
+      if (!text) { alert(`PDF ${f.name} 中没有可提取的文字（可能是扫描件，暂不支持）`); return; }
+      pendingAttachments.push({ kind: 'file', name: f.name, text });
+    } else if (/\.docx$/i.test(f.name)) {
+      const mammoth = await loadMammoth();
+      const { value } = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+      pendingAttachments.push({ kind: 'file', name: f.name, text: String(value || '').slice(0, ATT_TEXT_MAX) });
+    } else if (isTextLikeFile(f)) {
+      pendingAttachments.push({ kind: 'file', name: f.name, text: (await readAsText(f)).slice(0, ATT_TEXT_MAX) });
+    } else {
+      alert(`暂不支持文件类型：${f.name}\n支持：图片、PDF、Word(.docx)、文本和代码文件`);
+      return;
+    }
+    renderAttPreview();
+  } catch (e) {
+    alert('附件处理失败：' + (e.message || e));
+  }
+}
+
+function renderAttPreview() {
+  const box = $('att-preview');
+  box.innerHTML = '';
+  pendingAttachments.forEach((a, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'att-chip';
+    chip.innerHTML = `${a.kind === 'image' ? `<img src="${esc(a.dataUrl)}">` : '📄'}
+      <span class="nm">${esc(a.name)}</span><span class="rm" title="移除">✕</span>`;
+    chip.querySelector('.rm').onclick = () => { pendingAttachments.splice(i, 1); renderAttPreview(); };
+    box.appendChild(chip);
+  });
+}
+
+function clearAttachments() { pendingAttachments = []; renderAttPreview(); }
 
 /* ================= AI 直连调用（OpenAI 兼容流式接口 + 自动联网搜索） ================= */
 
@@ -570,7 +676,11 @@ async function callAI({ provider, model, messages, onDelta }) {
   if (!prov || !prov.apiKey) throw new Error(`${conf.name} 未配置 API 密钥`);
   const ctrl = new AbortController();
   aborters.push(ctrl);
-  const tools = conf.webSearch ? webSearchTools(provider) : null;
+  /* 消息中带图片时，自动切换到该家支持视觉的模型 */
+  const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some(c => c.type === 'image_url'));
+  if (hasImages && conf.visionModels && !conf.visionModels.includes(model)) model = conf.visionModel;
+  /* DeepSeek 视觉模型（实验版）暂不叠加搜索工具，避免不兼容 */
+  const tools = conf.webSearch && !(hasImages && provider === 'deepseek') ? webSearchTools(provider) : null;
   let convo = messages.slice();
   let content = '', usage = null;
 
@@ -637,11 +747,11 @@ async function saveMessage(m) {
   return data.id;
 }
 
-/* ================= 圆桌讨论编排 ================= */
+/* ================= 多 AI 并行回答编排 ================= */
 const AVATAR_COLOR = { deepseek: '#378ADD', kimi: '#1D9E75', openai: '#0C447C', gemini: '#639922', host: '#534AB7', me: '#D85A30' };
 
-function makeStreamBubble(provider, model, isHost) {
-  const s = senderLabel({ sender: isHost ? 'host' : 'assistant', provider, model });
+function makeStreamBubble(provider, model) {
+  const s = senderLabel({ sender: 'assistant', provider, model });
   const box = $('messages');
   const div = document.createElement('div');
   div.className = 'msg';
@@ -681,14 +791,42 @@ function makeFastCol(grid, provider, model) {
 
 function transcriptFor(curProvider) {
   return currentMessages.map(m => {
-    if (m.sender === 'user') return `【用户】${m.content}`;
+    if (m.sender === 'user') return `【用户】${attSummary(m.content)}`;
     const name = m.sender === 'host' ? '主持人' : (PROVIDER_META[m.provider] || {}).name || m.provider;
     return `【${name}】${m.content}`;
   }).join('\n\n');
 }
 
-async function memberTurn({ convId, provider, model, roundNo, system, userPrompt, isHost, col }) {
-  const st = col || makeStreamBubble(provider, model, isHost);
+/* 为某个 AI 构造完整对话：系统提示 + 该 AI 视角的历史 + 当前消息（含图片/附件） */
+function buildMessages(provider, model, curText, curAtts) {
+  const meta = PROVIDER_META[provider] || { name: provider };
+  const sys = `你是用户的 AI 助手 ${meta.name}（当前模型：${model}）。用户把同一条消息同时发给了多个 AI 助手，各 AI 彼此独立作答、互相看不到对方的回答。请独立、直接地回答用户，用中文，条理清晰；若消息带有图片或文件附件，请结合附件内容回答。`;
+  const msgs = [{ role: 'system', content: sys }];
+  /* 历史：该 AI 自己的回答 + 用户消息（附件只留名字提示）。最多取最近 30 条 */
+  const hist = currentMessages.slice(0, -1).slice(-30);
+  hist.forEach(m => {
+    if (m.sender === 'user') msgs.push({ role: 'user', content: attSummary(m.content) });
+    else if (m.sender === 'assistant' && m.provider === provider && m.status !== 'error' && m.content)
+      msgs.push({ role: 'assistant', content: m.content });
+  });
+  /* 当前消息：完整内容（图片为 content 数组，文件全文附在文本里） */
+  let txt = curText || '（见附件）';
+  curAtts.filter(a => a.kind === 'file').forEach(f => { txt += `\n\n【附件文件：${f.name}】\n${f.text}`; });
+  const images = curAtts.filter(a => a.kind === 'image');
+  let content;
+  if (images.length) {
+    const parts = [{ type: 'text', text: txt }];
+    images.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }));
+    content = parts;
+  } else {
+    content = txt;
+  }
+  msgs.push({ role: 'user', content });
+  return msgs;
+}
+
+async function memberTurn({ convId, provider, model, messages, col }) {
+  const st = col || makeStreamBubble(provider, model);
   try {
     const { content, usage } = await callAI({
       provider, model,
@@ -702,10 +840,10 @@ async function memberTurn({ convId, provider, model, roundNo, system, userPrompt
     });
     st.bubble.textContent = content;
     const id = await saveMessage({
-      conversation_id: convId, sender: isHost ? 'host' : 'assistant',
-      provider, model, round_no: roundNo, content, tokens: usage.ct
+      conversation_id: convId, sender: 'assistant',
+      provider, model, round_no: 0, content, tokens: usage.ct
     });
-    currentMessages.push({ id, conversation_id: convId, sender: isHost ? 'host' : 'assistant', provider, model, round_no: roundNo, content, status: 'done' });
+    currentMessages.push({ id, conversation_id: convId, sender: 'assistant', provider, model, round_no: 0, content, status: 'done' });
     logUsage(provider, model, usage);
     return true;
   } catch (e) {
@@ -713,8 +851,8 @@ async function memberTurn({ convId, provider, model, roundNo, system, userPrompt
     st.bubble.innerHTML = `<span class="err">${esc((PROVIDER_META[provider] || {}).name || provider)} 暂时离线：${esc(msg)}</span>`;
     if (e && e.name === 'AbortError') return false;
     try {
-      const id = await saveMessage({ conversation_id: convId, sender: isHost ? 'host' : 'assistant', provider, model, round_no: roundNo, content: '', status: 'error' });
-      currentMessages.push({ id, conversation_id: convId, sender: isHost ? 'host' : 'assistant', provider, model, round_no: roundNo, content: '', status: 'error' });
+      const id = await saveMessage({ conversation_id: convId, sender: 'assistant', provider, model, round_no: 0, content: '', status: 'error' });
+      currentMessages.push({ id, conversation_id: convId, sender: 'assistant', provider, model, round_no: 0, content: '', status: 'error' });
     } catch (_) {}
     return false;
   }
@@ -734,89 +872,54 @@ function stopDiscussionUI() {
 async function sendQuestion() {
   const input = $('chat-input');
   const text = input.value.trim();
-  if (!text) { input.placeholder = '请先输入你的问题'; return; }
+  const atts = pendingAttachments.slice();
+  if (!text && !atts.length) { input.placeholder = '请输入消息，或点 📎 添加附件'; return; }
   if (discussing) return;
 
   const participants = currentParticipants();
-  if (!participants.length) { alert('请至少勾选一位参与成员（需在设置页配置密钥并启用）'); return; }
-  const rounds = Number(settings.default_rounds) || 2;
-  const hostPair = (settings.host_provider || 'deepseek') + '|' + (settings.host_model || '');
-  const hostProv = hostPair.split('|')[0];
-  const hostModel = hostPair.split('|')[1] || currentModelSel[hostProv] || providers.find(p => p.key === hostProv).models[0];
-  const hostReady = providers.find(p => p.key === hostProv && p.configured && p.enabled);
+  if (!participants.length) { alert('请至少勾选一位 AI（需在设置页配置密钥并启用）'); return; }
 
   discussing = true; stopFlag = false; aborters = [];
   setDiscussingUI(true);
 
   try {
-    appendUserBubble(text);
-    $('chat-title').textContent = text.slice(0, 20);
+    const fullContent = serializeAtts(text, atts);
+    appendUserBubble(fullContent);
+    const title = (text || atts.map(a => a.name).join('、')).slice(0, 20);
+    $('chat-title').textContent = title;
     input.value = '';
+    clearAttachments();
 
     /* 建立/更新会话 + 保存用户消息 */
     if (currentConvId === null) {
       const { data, error } = await sb.from('conversations').insert({
-        title: text.slice(0, 20), mode, participants, rounds, status: 'active'
+        title, mode: 'solo', participants, rounds: 0, status: 'active'
       }).select('id').single();
       if (error) dbErr('创建会话', error);
       currentConvId = data.id;
       await loadConversations();
     } else {
       await sb.from('conversations').update({
-        mode, participants, rounds, status: 'active', updated_at: new Date().toISOString()
+        participants, status: 'active', updated_at: new Date().toISOString()
       }).eq('id', currentConvId);
     }
-    const um = await saveMessage({ conversation_id: currentConvId, sender: 'user', content: text });
-    currentMessages.push({ id: um, conversation_id: currentConvId, sender: 'user', content: text, status: 'done' });
+    const um = await saveMessage({ conversation_id: currentConvId, sender: 'user', content: fullContent });
+    currentMessages.push({ id: um, conversation_id: currentConvId, sender: 'user', content: fullContent, status: 'done' });
 
-    /* 第 0 轮：并行独立作答（快速模式用并排分块展示） */
-    if (mode === 'fast') {
-      addPhaseTip('—— 快速模式：各成员独立作答 ——');
-      const grid = makeFastGrid();
-      await Promise.all(participants.map(p => memberTurn({
-        convId: currentConvId, provider: p.provider, model: p.model, roundNo: 0,
-        col: makeFastCol(grid, p.provider, p.model),
-        system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。用户提出了一个问题，请给出你的独立分析和建议。用中文回答，观点鲜明、有条理，控制在 300 字以内。`,
-        userPrompt: `用户的问题：${text}`
-      })));
-    } else {
-      addPhaseTip('—— 第 1 轮：各成员独立作答 ——');
-      await Promise.all(participants.map(p => memberTurn({
-        convId: currentConvId, provider: p.provider, model: p.model, roundNo: 0,
-        system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。用户提出了一个问题，请给出你的独立分析和建议。用中文回答，观点鲜明、有条理，控制在 300 字以内。`,
-        userPrompt: `用户的问题：${text}`
-      })));
-    }
-
-    /* 圆桌模式：互相讨论 N 轮 */
-    if (mode === 'roundtable' && !stopFlag) {
-      for (let r = 1; r <= rounds && !stopFlag; r++) {
-        addPhaseTip(`—— 圆桌讨论 第 ${r} 轮 ——`);
-        for (const p of participants) {
-          if (stopFlag) break;
-          await memberTurn({
-            convId: currentConvId, provider: p.provider, model: p.model, roundNo: r,
-            system: `你是"AI圆桌"讨论的成员 ${PROVIDER_META[p.provider].name}（当前模型：${p.model}）。这是一场多 AI 圆桌讨论，请阅读以下完整对话记录，然后发表你本轮的观点：简短点评、补充或反驳其他成员的观点（用中文，150 字以内）。`,
-            userPrompt: `完整的讨论记录：\n\n${transcriptFor(p.provider)}\n\n请发表第 ${r} 轮观点。`
-          });
-        }
-      }
-      /* 主持人汇总 */
-      if (!stopFlag && hostReady) {
-        addPhaseTip('—— 主持人正在汇总综合方案 ——');
-        await memberTurn({
-          convId: currentConvId, provider: hostProv, model: hostModel, roundNo: 99, isHost: true,
-          system: `你是"AI圆桌"讨论的主持人。请通读全部讨论记录，输出一份《综合方案》，包含三部分：一、共识（各成员一致认同的要点）；二、分歧（各成员意见不一致之处）；三、最终建议（给出可执行的综合结论）。用中文，条理清晰。`,
-          userPrompt: `用户的问题与讨论记录：\n\n${transcriptFor(hostProv)}\n\n请输出综合方案。`
-        });
-      }
-    }
+    /* 同时发给所有勾选的 AI，各自独立回答、并排分块展示 */
+    addPhaseTip('—— 已同时发给以下 AI，各自独立回答 ——');
+    const grid = makeFastGrid();
+    await Promise.all(participants.map(p => memberTurn({
+      convId: currentConvId, provider: p.provider, model: p.model,
+      messages: buildMessages(p.provider, p.model, text, atts),
+      col: makeFastCol(grid, p.provider, p.model)
+    })));
 
     /* 会话收尾 */
     await sb.from('conversations').update({ status: stopFlag ? 'stopped' : 'completed', updated_at: new Date().toISOString() }).eq('id', currentConvId);
-    if (stopFlag) addPhaseTip('—— 讨论已手动停止 ——');
+    if (stopFlag) addPhaseTip('—— 已手动停止 ——');
   } catch (e) {
-    addPhaseTip('发起讨论失败：' + (e.message || e));
+    addPhaseTip('发送失败：' + (e.message || e));
   } finally {
     discussing = false;
     setDiscussingUI(false);
@@ -824,30 +927,37 @@ async function sendQuestion() {
   }
 }
 
-function appendUserBubble(text) {
+function appendUserBubble(content) {
   const box = $('messages');
   const div = document.createElement('div');
   div.className = 'msg mine';
   div.innerHTML = `<div class="avatar av-me">我</div>
-    <div class="bubble-wrap"><div class="sender">我</div><div class="bubble">${esc(text)}</div></div>`;
+    <div class="bubble-wrap"><div class="sender">我</div><div class="bubble">${userBubbleHtml(content)}</div></div>`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
 
 /* ================= 导出 / 删除 / 改密 ================= */
 function exportCurrent() {
-  if (!currentConvId || !currentMessages.length) { alert('请先打开一场讨论'); return; }
-  const lines = [`【AI 圆桌讨论记录】${$('chat-title').textContent}`, `导出时间：${new Date().toLocaleString()}`, ''];
+  if (!currentConvId || !currentMessages.length) { alert('请先打开一场对话'); return; }
+  const lines = [`【AI 群聊对话记录】${$('chat-title').textContent}`, `导出时间：${new Date().toLocaleString()}`, ''];
   currentMessages.forEach(m => {
-    const s = m.sender === 'user' ? '我' : (m.sender === 'host' ? '主持人·综合方案' : ((PROVIDER_META[m.provider] || {}).name || m.provider));
+    const s = m.sender === 'user' ? '我' : ((PROVIDER_META[m.provider] || {}).name || m.provider);
     lines.push(`--- ${s} ---`);
-    lines.push(m.content || (m.status === 'error' ? '（本次调用失败）' : ''));
+    if (m.sender === 'user') {
+      const { text, atts } = parseAtts(m.content);
+      let out = text;
+      atts.forEach(a => { out += `\n[附件：${a.name}]`; });
+      lines.push(out || (m.status === 'error' ? '（本次调用失败）' : ''));
+    } else {
+      lines.push(m.content || (m.status === 'error' ? '（本次调用失败）' : ''));
+    }
     lines.push('');
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `AI圆桌-${$('chat-title').textContent}.txt`;
+  a.download = `AI群聊-${$('chat-title').textContent}.txt`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -881,14 +991,16 @@ $('btn-new').onclick = newDraft;
 $('btn-settings').onclick = openSettings;
 $('btn-back').onclick = () => showView('chat');
 $('btn-logout').onclick = () => logout(true);
-$('mode-round').onclick = () => setMode('roundtable');
-$('mode-fast').onclick = () => setMode('fast');
 $('btn-send').onclick = sendQuestion;
 $('btn-stop').onclick = stopDiscussionUI;
 $('btn-export').onclick = exportCurrent;
 $('btn-del').onclick = deleteCurrent;
-$('btn-save-settings').onclick = saveSettings;
 $('btn-changepass').onclick = changePasswordUI;
+$('btn-attach').onclick = () => $('file-input').click();
+$('file-input').onchange = e => {
+  [...e.target.files].forEach(processFile);
+  e.target.value = ''; /* 允许重复选择同一文件 */
+};
 $('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
 });
