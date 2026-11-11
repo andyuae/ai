@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 圆桌 · 多 AI 群聊讨论</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================= 登录页 ================= -->
+<div id="view-login" class="view active">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="logo-circle">桌</span>
+      <h1>AI 圆桌</h1>
+      <p>多个 AI 像群聊一样帮你讨论问题</p>
+    </div>
+    <div class="field">
+      <label>用户名</label>
+      <input type="text" id="login-user" placeholder="请输入用户名" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="login-pass" placeholder="请输入密码" autocomplete="current-password">
+    </div>
+    <div class="login-error" id="login-error">用户名或密码不正确，请重试</div>
+    <div class="login-error" id="login-neterr" style="display:none">无法连接服务器，请稍后再试</div>
+    <button class="btn-primary" id="btn-login">登 录</button>
+    <div class="login-tip">密码由云端服务器验证 · 7 天内免登录</div>
+  </div>
+</div>
+
+<!-- ================= 聊天页 ================= -->
+<div id="view-chat" class="view">
+  <aside class="sidebar">
+    <div class="sidebar-head"><button class="btn-new" id="btn-new">＋ 新开一场讨论</button></div>
+    <div class="session-list" id="session-list"></div>
+  </aside>
+  <div class="chat-main">
+    <div class="topbar">
+      <div class="title"><span id="chat-title">新讨论</span><small id="chat-sub"></small></div>
+      <div class="actions">
+        <button id="btn-export">导出</button>
+        <button id="btn-del">删除</button>
+        <button id="btn-settings">设置</button>
+        <button id="btn-logout">退出登录</button>
+      </div>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <div class="composer-bar">
+        <div class="mode-switch">
+          <button id="mode-round" class="on">圆桌模式</button>
+          <button id="mode-fast">快速模式</button>
+        </div>
+        <span class="muted small">参与成员：</span>
+        <div id="member-chips" class="chips"></div>
+      </div>
+      <div class="input-row">
+        <textarea id="chat-input" placeholder="输入你的问题，让 AI 们开始讨论……（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn-send" id="btn-send">发 送</button>
+        <button class="btn-stop" id="btn-stop" style="display:none">停 止</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 设置页 ================= -->
+<div id="view-settings" class="view">
+  <div class="settings-wrap">
+    <button class="back-link" id="btn-back">← 返回聊天</button>
+
+    <div class="settings-card">
+      <h2>AI 服务密钥配置</h2>
+      <div class="sub">填入各家的 API 密钥。密钥加密后只保存在云端服务器，网页上仅显示状态，不会回显内容。</div>
+      <div id="provider-list"></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>讨论设置</h2>
+      <div class="sub">默认的讨论方式，聊天页可临时调整。</div>
+      <div class="form-line"><label>默认讨论模式</label>
+        <select id="set-mode"><option value="roundtable">圆桌模式（互相讨论后出综合方案）</option><option value="fast">快速模式（各答各的）</option></select></div>
+      <div class="form-line"><label>圆桌讨论轮数</label>
+        <select id="set-rounds"><option value="1">1 轮</option><option value="2">2 轮</option><option value="3">3 轮</option></select></div>
+      <div class="form-line"><label>主持人角色</label>
+        <select id="set-host"></select></div>
+      <div class="form-line"><label>默认参与成员</label><div id="set-members" class="chips"></div></div>
+      <div class="form-line"><button class="btn-save" id="btn-save-settings">保存讨论设置</button></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>模型启用开关</h2>
+      <div class="sub">临时关闭某家 AI（例如密钥欠费、服务故障时），不影响其他成员。</div>
+      <div id="provider-switches"></div>
+    </div>
+
+    <div class="settings-card">
+      <h2>本月用量统计</h2>
+      <div class="sub">按 API 返回的 token 用量估算费用（估算值，以各家账单为准）。</div>
+      <div id="usage-list" class="muted">加载中……</div>
+    </div>
+
+    <div class="settings-card">
+      <h2>账号安全</h2>
+      <div class="form-line"><label>原密码</label><input type="password" id="old-pass" style="width:200px"></div>
+      <div class="form-line"><label>新密码（至少 6 位）</label><input type="password" id="new-pass" style="width:200px"><button class="btn-save" id="btn-changepass">确认修改</button></div>
+      <div class="form-line" id="changepass-result" class="muted"></div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
