@@ -988,19 +988,22 @@ function makeFastCol(grid, provider, model) {
   const holder = { text: '' };   // 流式过程中实时更新，复制按钮随时可复制当前内容
   const col = document.createElement('div');
   col.className = 'fast-col';
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'fast-copy'; copyBtn.title = '复制这条回答'; copyBtn.textContent = '复制';
-  copyBtn.onclick = e => { e.stopPropagation(); copyText(holder.text, copyBtn); };
   const head = document.createElement('div');
   head.className = 'fast-head';
   head.innerHTML = `<span class="fdot" style="background:${AVATAR_COLOR[provider] || '#888'}"></span>
       <span class="fname">${esc(meta.name || provider)}</span>
       <span class="fm">${esc(modelTxt)}</span>`;
-  head.appendChild(copyBtn);
   const body = document.createElement('div');
   body.className = 'fast-body';
   body.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-  col.appendChild(head); col.appendChild(body);
+  /* 复制按钮放在回答框最底部：读完内容滑到底就能直接复制，不用再翻回顶部 */
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'fast-copy'; copyBtn.title = '复制这条回答'; copyBtn.textContent = '复制';
+  copyBtn.onclick = e => { e.stopPropagation(); copyText(holder.text, copyBtn); };
+  const foot = document.createElement('div');
+  foot.className = 'fast-foot';
+  foot.appendChild(copyBtn);
+  col.appendChild(head); col.appendChild(body); col.appendChild(foot);
   grid.appendChild(col);
   return { bubble: body, col, holder };
 }
