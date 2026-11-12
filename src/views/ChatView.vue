@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
-import { store } from '../store'
+import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
 import type { DbMessage } from '../lib/types'
 
@@ -24,6 +24,10 @@ const renderList = computed<RenderItem[]>(() => {
       if (!grid) { grid = { kind: 'grid', msgs: [] }; list.push(grid) }
       grid.msgs!.push(m)
     }
+  })
+  /* 历史回答也按固定顺序排列：ChatGPT → Gemini → DeepSeek → Kimi */
+  list.forEach(it => {
+    if (it.kind === 'grid') it.msgs!.sort((a, b) => orderOf(a.provider) - orderOf(b.provider))
   })
   return list
 })

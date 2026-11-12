@@ -30,6 +30,13 @@ const state = reactive({
 
 const currentModelSel = reactive<Record<string, string>>({})
 
+/* 展示顺序（从左到右固定为）：ChatGPT → Gemini → DeepSeek → Kimi */
+export const DISPLAY_ORDER = ['openai', 'gemini', 'deepseek', 'kimi']
+export function orderOf(key?: string) {
+  const i = DISPLAY_ORDER.indexOf(key || '')
+  return i < 0 ? 99 : i
+}
+
 function effBaseUrl(key: string): string {
   return state.settings.baseUrls?.[key] || PROVIDERS[key].baseUrl
 }
@@ -88,6 +95,8 @@ async function loadConfigs() {
       apiKey: row.api_key || null
     }
   })
+  /* 固定展示顺序：ChatGPT → Gemini → DeepSeek → Kimi（成员芯片与回答分块都按此排列） */
+  state.providers.sort((a, b) => orderOf(a.key) - orderOf(b.key))
   Object.keys(currentModelSel).forEach(k => delete currentModelSel[k])
   state.providers.forEach(p => { if (p.enabled && p.models.length) currentModelSel[p.key] = p.models[0] })
 }
