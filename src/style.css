@@ -161,7 +161,7 @@ body {
 .btn-send { height: 54px }
 
 /* ===== 设置页 ===== */
-.settings-wrap { max-width: 760px; margin: 0 auto; padding: 20px 16px 60px }
+.settings-wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px }
 .back-link { margin-bottom: 10px }
 .settings-card {
   background: #fff; border-radius: 14px; padding: 20px 22px; margin-bottom: 16px;
@@ -179,7 +179,34 @@ body {
 .test-result.ok { color: #18a05e }
 .test-result.fail { color: #d64541 }
 .switch-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0 }
-.usage-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 13px }
+/* 用量统计表格（模型 × 日期） */
+.usage-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px }
+.month-switch { display: flex; align-items: center; gap: 6px; flex: none }
+.m-btn {
+  width: 28px; height: 28px; border: 1px solid #dde3ea; background: #fff; border-radius: 6px;
+  cursor: pointer; color: #5a6470; font-size: 15px; line-height: 1;
+}
+.m-btn:hover:not(:disabled) { border-color: #2f54eb; color: #2f54eb }
+.m-btn:disabled { opacity: .4; cursor: not-allowed }
+.m-label { font-size: 13px; font-weight: 600; min-width: 76px; text-align: center }
+.usage-table-wrap { overflow-x: auto; border: 1px solid #eef1f5; border-radius: 10px }
+.usage-table { border-collapse: separate; border-spacing: 0; font-size: 12px; width: 100% }
+.usage-table th, .usage-table td {
+  padding: 7px 9px; white-space: nowrap; border-bottom: 1px solid #f0f2f5; text-align: center;
+}
+.usage-table thead th { background: #fafbfc; color: #8a94a0; font-weight: 500; font-size: 11px }
+.usage-table td.empty { color: #c8ced6 }
+.usage-table tbody tr:hover td { background: #f7f9ff }
+.usage-table .uc-model {
+  position: sticky; left: 0; z-index: 1; text-align: left;
+  min-width: 168px; max-width: 210px; overflow: hidden; text-overflow: ellipsis;
+  background: #fff; border-right: 1px solid #eef1f5;
+}
+.usage-table thead .uc-model { background: #fafbfc; z-index: 2 }
+.usage-table tbody tr:hover .uc-model { background: #f7f9ff }
+.usage-table tfoot td { background: #f6f8fa; font-weight: 600; border-top: 1px solid #e5e9ef }
+.usage-table tfoot .uc-model { background: #f6f8fa }
+.usage-foot { font-size: 12px; color: #8a94a0; margin-top: 8px; text-align: right }
 
 /* 移动端 */
 @media (max-width: 720px) {

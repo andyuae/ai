@@ -2,26 +2,45 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store } from '../store'
+import type { UsageMatrix, UsageCell } from '../store'
 
 const state = store.state
 const keyInputs = ref<Record<string, string>>({})
 const baseInputs = ref<Record<string, string>>({})
-const usage = ref<{ label: string; detail: string }[]>([])
+const usage = ref<UsageMatrix | null>(null)
 const usageLoading = ref(true)
 const usageErr = ref('')
+const monthOffset = ref(0)
 
 const oldPass = ref('')
 const newPass = ref('')
 const passMsg = ref('')
 
-onMounted(async () => {
+async function loadUsageData() {
+  usageLoading.value = true
+  usageErr.value = ''
   try {
-    usage.value = await store.loadUsage()
+    usage.value = await store.loadUsage(monthOffset.value)
   } catch (e: any) {
     usageErr.value = '统计加载失败：' + (e?.message || e)
   } finally {
     usageLoading.value = false
   }
+}
+function shiftMonth(n: number) {
+  if (monthOffset.value + n > 0) return
+  monthOffset.value += n
+  loadUsageData()
+}
+/* 单元格显示：token 数 / 花费（元） */
+function cellText(c?: UsageCell) {
+  if (!c || (!c.tokens && !c.cost)) return '–'
+  const cost = c.cost < 0.01 ? c.cost.toFixed(3) : c.cost.toFixed(2)
+  return `${c.tokens ? c.tokens.toLocaleString('zh-CN') : 0} / ¥${cost}`
+}
+
+onMounted(async () => {
+  await loadUsageData()
   state.providers.forEach((p: any) => { baseInputs.value[p.key] = store.effBaseUrl(p.key) })
 })
 
@@ -88,15 +107,44 @@ async function changePass() {
 
     <!-- 用量 -->
     <div class="settings-card">
-      <h2>本月用量统计</h2>
-      <div class="sub">按 API 返回的 token 用量估算费用（估算值，以各家账单为准）。</div>
+      <div class="usage-head">
+        <div>
+          <h2>用量统计</h2>
+          <div class="sub">按 API 返回的 token 估算费用（估算值，以各家账单为准）。单元格为「token 数 / 花费（元）」。</div>
+        </div>
+        <div class="month-switch">
+          <button class="m-btn" title="上一个月" @click="shiftMonth(-1)">‹</button>
+          <span class="m-label">{{ usage?.monthLabel || '——' }}</span>
+          <button class="m-btn" title="下一个月" :disabled="monthOffset >= 0" @click="shiftMonth(1)">›</button>
+        </div>
+      </div>
       <div v-if="usageLoading" class="muted">加载中……</div>
       <div v-else-if="usageErr" class="muted">{{ usageErr }}</div>
-      <div v-else-if="!usage.length" class="muted">本月暂无调用记录</div>
-      <div v-else>
-        <div v-for="(u, i) in usage" :key="i" class="usage-row">
-          <span>{{ u.label }}</span><span class="muted">{{ u.detail }}</span>
-        </div>
+      <div v-else-if="!usage || !usage.rows.length" class="muted">该月暂无调用记录</div>
+      <div v-else class="usage-table-wrap">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th class="uc-model">模型 \ 日期</th>
+              <th v-for="d in usage.days" :key="d">{{ d }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in usage.rows" :key="r.key">
+              <td class="uc-model" :title="r.label">{{ r.label }}</td>
+              <td v-for="d in usage.days" :key="d" :class="{ empty: !r.cells[d] }">{{ cellText(r.cells[d]) }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="uc-model">合计</td>
+              <td v-for="d in usage.days" :key="d" :class="{ empty: !usage.totals.cells[d] }">{{ cellText(usage.totals.cells[d]) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div v-if="usage && usage.rows.length" class="usage-foot">
+        本月共 {{ usage.totals.tokens.toLocaleString('zh-CN') }} tokens，预计花费 ¥{{ usage.totals.cost.toFixed(2) }}
       </div>
     </div>
 

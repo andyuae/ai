@@ -231,24 +231,77 @@ async function toggleProvider(key: string, enabled: boolean) {
   await loadConfigs()
 }
 
-async function loadUsage(): Promise<{ label: string; detail: string }[]> {
-  const monthStart = new Date()
-  monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+export interface UsageCell { tokens: number; cost: number }
+export interface UsageRow {
+  key: string; provider: string; model: string; label: string
+  cells: Record<number, UsageCell>; tokens: number; cost: number; calls: number
+}
+export interface UsageMatrix {
+  monthLabel: string
+  days: number[]
+  rows: UsageRow[]
+  totals: { cells: Record<number, UsageCell>; tokens: number; cost: number }
+}
+
+/* 按月读取用量，聚合成"模型 × 日期"的矩阵（monthOffset=0 表示本月，-1 上月） */
+async function loadUsage(monthOffset = 0): Promise<UsageMatrix> {
+  const base = new Date()
+  base.setDate(1); base.setHours(0, 0, 0, 0)
+  base.setMonth(base.getMonth() + monthOffset)
+  const end = new Date(base.getFullYear(), base.getMonth() + 1, 1)
+  const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
+
   const { data, error } = await sb.from('usage_logs')
     .select('provider, model, prompt_tokens, completion_tokens, cost_estimate, created_at')
-    .gte('created_at', monthStart.toISOString())
+    .gte('created_at', base.toISOString())
+    .lt('created_at', end.toISOString())
+    .limit(5000)
   if (error) throw error
-  const agg: Record<string, any> = {}
-  data.forEach((r: any) => {
-    const k = r.provider + '|' + r.model
-    agg[k] = agg[k] || { provider: r.provider, model: r.model, calls: 0, pt: 0, ct: 0, cost: 0 }
-    agg[k].calls++; agg[k].pt += r.prompt_tokens || 0; agg[k].ct += r.completion_tokens || 0
-    agg[k].cost += Number(r.cost_estimate) || 0
+
+  const map: Record<string, UsageRow> = {}
+  ;(data || []).forEach((r: any) => {
+    const key = r.provider + '|' + r.model
+    if (!map[key]) {
+      map[key] = {
+        key, provider: r.provider, model: r.model,
+        label: `${(PROVIDERS[r.provider] || {}).name || r.provider} · ${r.model}`,
+        cells: {}, tokens: 0, cost: 0, calls: 0
+      }
+    }
+    const row = map[key]
+    const day = new Date(r.created_at).getDate()
+    const tk = (r.prompt_tokens || 0) + (r.completion_tokens || 0)
+    const cost = Number(r.cost_estimate) || 0
+    if (!row.cells[day]) row.cells[day] = { tokens: 0, cost: 0 }
+    row.cells[day].tokens += tk
+    row.cells[day].cost += cost
+    row.tokens += tk
+    row.cost += cost
+    row.calls++
   })
-  return Object.values(agg).map((r: any) => ({
-    label: `${(PROVIDERS[r.provider] || {}).name || r.provider} · ${r.model}`,
-    detail: `${r.calls} 次 · 输入 ${r.pt.toLocaleString()} / 输出 ${r.ct.toLocaleString()} tokens · 约 ¥${r.cost.toFixed(2)}`
-  }))
+
+  /* 行顺序与聊天区一致：ChatGPT → Gemini → DeepSeek → Kimi */
+  const rows = Object.values(map).sort(
+    (a, b) => orderOf(a.provider) - orderOf(b.provider) || a.model.localeCompare(b.model)
+  )
+
+  const totals: UsageMatrix['totals'] = { cells: {}, tokens: 0, cost: 0 }
+  rows.forEach(r => {
+    Object.entries(r.cells).forEach(([d, c]) => {
+      const day = Number(d)
+      if (!totals.cells[day]) totals.cells[day] = { tokens: 0, cost: 0 }
+      totals.cells[day].tokens += c.tokens
+      totals.cells[day].cost += c.cost
+    })
+    totals.tokens += r.tokens
+    totals.cost += r.cost
+  })
+
+  return {
+    monthLabel: `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`,
+    days: Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    rows, totals
+  }
 }
 
 /* ================= 会话 ================= */
