@@ -30,8 +30,8 @@ const state = reactive({
 
 const currentModelSel = reactive<Record<string, string>>({})
 
-/* 展示顺序（从左到右固定为）：ChatGPT → Gemini → DeepSeek → Kimi */
-export const DISPLAY_ORDER = ['openai', 'gemini', 'deepseek', 'kimi']
+/* 展示顺序（从左到右固定为）：ChatGPT → Gemini → DeepSeek → Kimi → Anthropic */
+export const DISPLAY_ORDER = ['openai', 'gemini', 'deepseek', 'kimi', 'anthropic']
 export function orderOf(key?: string) {
   const i = DISPLAY_ORDER.indexOf(key || '')
   return i < 0 ? 99 : i

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import { store, orderOf } from '../store'
@@ -32,7 +32,9 @@ const renderList = computed<RenderItem[]>(() => {
   return list
 })
 
-const DOT: Record<string, string> = { deepseek: '#378ADD', kimi: '#1D9E75', openai: '#0C447C', gemini: '#639922' }
+const DOT: Record<string, string> = {
+  openai: '#0C447C', gemini: '#639922', deepseek: '#378ADD', kimi: '#1D9E75', anthropic: '#C15F3C'
+}
 function dotColor(p?: string) { return DOT[p || ''] || '#888' }
 function provName(key?: string) { return store.providerOf(key || '')?.name || key || '' }
 function provLabel(provider: string | undefined, model?: string) {
@@ -99,7 +101,25 @@ function onInputEnter(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); store.send() }
 }
 
-onMounted(() => followScroll(true))
+/* ===== 放大查看（抽屉）：点空白处或 Esc 关闭 ===== */
+const zoomCol = ref<any>(null)            // 进行中的回答（流式，实时更新）
+const zoomMsg = ref<DbMessage | null>(null) // 历史回答
+const zoomOpen = computed(() => !!(zoomCol.value || zoomMsg.value))
+const zoomText = computed(() => zoomCol.value ? zoomCol.value.text : (zoomMsg.value?.content || ''))
+const zoomProvider = computed(() => zoomCol.value?.provider || zoomMsg.value?.provider)
+const zoomModel = computed(() => zoomCol.value?.model || zoomMsg.value?.model)
+function openZoom(p: { col?: any; msg?: DbMessage }) {
+  zoomCol.value = p.col || null
+  zoomMsg.value = p.msg || null
+}
+function closeZoom() { zoomCol.value = null; zoomMsg.value = null }
+function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') closeZoom() }
+
+onMounted(() => {
+  followScroll(true)
+  window.addEventListener('keydown', onKeyDown)
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
@@ -153,6 +173,9 @@ onMounted(() => followScroll(true))
                 <span class="fdot" :style="{ background: dotColor(m.provider) }"></span>
                 <span class="fname">{{ provName(m.provider) }}</span>
                 <span class="fm">{{ provLabel(m.provider, m.model) }}</span>
+                <button class="zoom-btn" title="放大查看" @click="openZoom({ msg: m })">
+                  <svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
               </div>
               <div class="fast-body">
                 <span v-if="m.status === 'error'" class="err">（本次调用失败）</span>
@@ -172,6 +195,9 @@ onMounted(() => followScroll(true))
               <span class="fdot" :style="{ background: dotColor(c.provider) }"></span>
               <span class="fname">{{ provName(c.provider) }}</span>
               <span class="fm">{{ provLabel(c.provider, c.model) }}</span>
+              <button class="zoom-btn" title="放大查看" @click="openZoom({ col: c })">
+                <svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
             <div class="fast-body">
               <span v-if="c.state === 'error'" class="err">{{ provName(c.provider) }} 暂时离线：{{ c.error }}</span>
@@ -222,5 +248,24 @@ onMounted(() => followScroll(true))
         </div>
       </div>
     </div>
+
+    <!-- 放大查看：点空白处 / 关闭按钮 / Esc 退出 -->
+    <teleport to="body">
+      <div v-if="zoomOpen" class="zoom-mask" @click.self="closeZoom">
+        <div class="zoom-card">
+          <div class="zoom-head">
+            <span class="fdot" :style="{ background: dotColor(zoomProvider) }"></span>
+            <span class="fname">{{ provName(zoomProvider) }}</span>
+            <span class="fm">{{ provLabel(zoomProvider, zoomModel) }}</span>
+            <div class="zoom-actions">
+              <button class="act-btn" @click="doCopy(zoomText, $event)">复制全文</button>
+              <button class="act-btn" @click="closeZoom">关闭</button>
+            </div>
+          </div>
+          <div class="zoom-body">{{ zoomText || '（暂无内容）' }}</div>
+          <div class="zoom-tip">点击空白处或按 Esc 关闭</div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>

@@ -122,6 +122,35 @@ body {
 .fast-head .fdot { width: 10px; height: 10px; border-radius: 50%; flex: none }
 .fast-head .fname { flex: none }
 .fast-head .fm { font-size: 11px; color: #8a94a0; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-left: auto }
+.zoom-btn {
+  margin-left: 4px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border: 1px solid #e5e9ef; border-radius: 6px;
+  background: #fff; color: #8a94a0; cursor: pointer; transition: all .15s;
+}
+.zoom-btn:hover { border-color: #2f54eb; color: #2f54eb; background: #f3f6ff }
+
+/* 放大查看浮层 */
+.zoom-mask {
+  position: fixed; inset: 0; z-index: 2000; background: rgba(16, 24, 33, .45);
+  display: flex; align-items: center; justify-content: center; padding: 28px;
+}
+.zoom-card {
+  background: #fff; border-radius: 14px; width: 92vw; height: 88vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .28);
+}
+.zoom-head {
+  display: flex; align-items: center; gap: 8px; padding: 12px 18px;
+  border-bottom: 1px solid #e5e9ef; flex: none;
+}
+.zoom-head .fname { font-weight: 600; font-size: 15px }
+.zoom-head .fm { font-size: 12px; color: #8a94a0 }
+.zoom-actions { margin-left: auto; display: flex; gap: 8px }
+.zoom-body {
+  flex: 1; overflow: auto; padding: 18px 22px;
+  font-size: 15px; line-height: 1.9; white-space: pre-wrap; word-break: break-word;
+}
+.zoom-tip { flex: none; text-align: center; font-size: 11px; color: #a8b0ba; padding: 8px 0 10px; border-top: 1px solid #f0f2f5 }
 .fast-body { font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; flex: 1 }
 .fast-foot { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e5e9ef }
 .typing { display: inline-flex; gap: 4px; padding: 6px 0 }

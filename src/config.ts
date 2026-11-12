@@ -61,6 +61,20 @@ export const PROVIDERS: Record<string, ProviderMeta> = {
     price: { in: 10, out: 40 },
     visionModel: 'gemini-3.6-flash',
     visionModels: ['gemini-3.6-pro', 'gemini-3.6-flash', 'gemini-2.5-flash']
+  },
+  anthropic: {
+    name: 'Anthropic',
+    /* 走 4sapi 中转（OpenAI 兼容接口，与 ChatGPT/Gemini 同一个密钥地址） */
+    baseUrl: 'https://4sapi.com/v1',
+    models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+    modelLabel: {
+      'claude-opus-4-6': 'Claude Opus 4.6（最强）',
+      'claude-sonnet-4-6': 'Claude Sonnet 4.6（推荐）',
+      'claude-haiku-4-5': 'Claude Haiku 4.5（快）'
+    },
+    price: { in: 22, out: 110 },
+    visionModel: 'claude-sonnet-4-6',
+    visionModels: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5']
   }
 }
 
@@ -69,5 +83,6 @@ export const KEY_PREFIX_HINT: Record<string, { prefix: string; altPrefix?: strin
   deepseek: { prefix: 'sk-', name: 'DeepSeek' },
   kimi: { prefix: 'sk-', name: 'Kimi（月之暗面）' },
   openai: { prefix: 'sk-', name: 'ChatGPT（中转站或 OpenAI 官方）' },
-  gemini: { prefix: 'sk-', altPrefix: 'AIza', name: 'Gemini（中转站 sk- 开头；Google 官方 AIza 开头）' }
+  gemini: { prefix: 'sk-', altPrefix: 'AIza', name: 'Gemini（中转站 sk- 开头；Google 官方 AIza 开头）' },
+  anthropic: { prefix: 'sk-', altPrefix: 'sk-ant-', name: 'Anthropic（中转站 sk- 开头；官方 sk-ant- 开头）' }
 }
