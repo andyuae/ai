@@ -189,7 +189,7 @@ onMounted(() => followScroll(true))
             @click="chipClick(p)">
             <span class="dot"></span>{{ p.name }}
             <el-select v-if="p.models.length" :model-value="currentModelSel[p.key]" size="small"
-              style="width: 150px" @click.stop @change="(v: string) => currentModelSel[p.key] = v">
+              style="width: 118px" @click.stop @change="(v: string) => currentModelSel[p.key] = v">
               <el-option v-for="m in p.models" :key="m" :value="m" :label="p.modelLabel[m] || m" />
             </el-select>
           </span>
