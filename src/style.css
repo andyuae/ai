@@ -100,7 +100,8 @@ body {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
-  gap: 10px; margin-bottom: 16px; align-items: start;
+  gap: 10px; margin-bottom: 16px;
+  align-items: stretch;   /* 五条跑道顶部对齐、高度拉齐，复制按钮同一水平线 */
   width: 100%;
 }
 /* 只有窄屏（手机）才允许折成两行 */

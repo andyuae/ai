@@ -424,11 +424,14 @@ async function send() {
     const userMsg: DbMessage = { id: um, conversation_id: state.currentConvId, sender: 'user', content: fullContent, tokens: 0, status: 'done' }
     state.currentMessages.push(userMsg)
 
-    /* 同时发给所有 AI：并行流式回答 */
+    /* 同时发给所有 AI：并行流式回答。
+       关键：回答进行期间不把已完成的写入历史消息（否则会额外渲染一个历史网格、
+       页面反复重排）。所有 AI 都固定在 liveCols 自己的"跑道"里，直到全部跑完 */
     state.liveCols = participants.map(p => ({ provider: p.provider, model: p.model, text: '', state: 'running' as const }))
     const deepseekKey = (providerOf('deepseek') || {}).apiKey
     const historySnapshot = state.currentMessages.slice()
     aborters = participants.map(() => new AbortController())
+    const finished: DbMessage[] = []
 
     await Promise.all(participants.map(async (p, i) => {
       const col = state.liveCols[i]
@@ -448,7 +451,7 @@ async function send() {
           conversation_id: state.currentConvId!, sender: 'assistant',
           provider: p.provider, model: p.model, content, tokens: usage.ct
         })
-        state.currentMessages.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content, tokens: usage.ct, status: 'done' })
+        finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content, tokens: usage.ct, status: 'done' })
         logUsage(p.provider, p.model, usage)
       } catch (e: any) {
         const aborted = e?.name === 'AbortError' || state.stopFlag
@@ -457,14 +460,17 @@ async function send() {
         if (!aborted) {
           try {
             const id = await saveMessage({ conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: '', status: 'error' })
-            state.currentMessages.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: '', tokens: 0, status: 'error' })
+            finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: '', tokens: 0, status: 'error' })
           } catch { /* ignore */ }
         }
       }
     }))
 
     await sb.from('conversations').update({ status: state.stopFlag ? 'stopped' : 'completed', updated_at: new Date().toISOString() }).eq('id', state.currentConvId)
+    /* 全部跑完：先撤掉进行中的跑道，再按固定顺序一次性归入历史消息 */
     state.liveCols = []
+    finished.sort((a, b) => orderOf(a.provider || '') - orderOf(b.provider || ''))
+    state.currentMessages.push(...finished)
     await loadConversations()
   } catch (e: any) {
     ElMessage.error('发送失败：' + (e?.message || e))
