@@ -211,6 +211,8 @@ body {
 .switch-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0 }
 /* 用量统计表格（模型 × 日期） */
 .usage-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px }
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px }
+.test-all-btn { flex-shrink: 0; font-weight: 600 }
 .month-switch { display: flex; align-items: center; gap: 6px; flex: none }
 .m-btn {
   width: 28px; height: 28px; border: 1px solid #dde3ea; background: #fff; border-radius: 6px;

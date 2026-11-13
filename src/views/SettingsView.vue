@@ -69,8 +69,15 @@ async function changePass() {
 
     <!-- 密钥配置 -->
     <div class="settings-card">
-      <h2>AI 服务密钥配置</h2>
-      <div class="sub">填入各家的 API 密钥。密钥保存在云端数据库（仅你本人登录后可读取），网页上仅显示状态，不会回显内容。保存后可点「测试连通」一键验证密钥是否可用。</div>
+      <div class="card-head">
+        <div>
+          <h2>AI 服务密钥配置</h2>
+          <div class="sub">填入各家的 API 密钥。密钥保存在云端数据库（仅你本人登录后可读取），网页上仅显示状态，不会回显内容。保存后可点「测试连通」一键验证密钥是否可用。</div>
+        </div>
+        <el-button type="success" class="test-all-btn" :loading="state.testAllBusy" @click="store.testAllProviders()">
+          {{ state.testAllBusy ? '测试中……' : '⚡ 一键测试全部' }}
+        </el-button>
+      </div>
       <div v-for="p in state.providers" :key="p.key" class="prov-block">
         <div class="prov-head">
           <span class="api-name">{{ p.name }}<span v-if="p.oversea" class="muted small">（海外）</span></span>

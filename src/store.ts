@@ -24,6 +24,7 @@ const state = reactive({
   inputText: '',
   testResults: {} as Record<string, string>,  // provider -> 测试结果文案
   testBusy: {} as Record<string, boolean>,
+  testAllBusy: false,                          // 一键测试全部进行中
   modelBusy: {} as Record<string, boolean>,
   chatTitle: '新对话'
 })
@@ -206,6 +207,28 @@ async function testProvider(key: string): Promise<void> {
     state.testResults[key] = '❌ ' + lastErr
   } finally {
     state.testBusy[key] = false
+  }
+}
+
+/* 一键测试全部：并行测试所有已配置密钥的服务，结束后汇总成功数 */
+async function testAllProviders(): Promise<void> {
+  const targets = state.providers.filter(p => p.configured && p.apiKey)
+  if (!targets.length) { ElMessage.warning('还没有配置任何密钥，请先在下方填入并保存'); return }
+  if (state.testAllBusy) return
+  state.testAllBusy = true
+  ElMessage.info(`开始测试 ${targets.length} 家 AI 的连通性……`)
+  try {
+    await Promise.all(targets.map(p => testProvider(p.key)))
+    const ok = targets.filter(p => (state.testResults[p.key] || '').startsWith('✅')).length
+    const fail = targets.filter(p => (state.testResults[p.key] || '').startsWith('❌'))
+      .map(p => p.name).join('、')
+    if (ok === targets.length) {
+      ElMessage.success(`测试完成：${targets.length} 家全部连通 ✅`)
+    } else {
+      ElMessage.warning(`测试完成：${ok}/${targets.length} 家连通成功，失败：${fail}`)
+    }
+  } finally {
+    state.testAllBusy = false
   }
 }
 
@@ -508,6 +531,7 @@ export const store = {
   effBaseUrl, providerOf,
   enterApp, doLogin, logout, changePassword,
   saveProviderKey, saveBaseUrl, testProvider, fetchModelList, toggleProvider, loadUsage,
+  testAllProviders,
   loadConversations, openConversation, deleteConversation, deleteCurrent, newDraft, exportCurrent,
   send, stopAnswer, addFiles, removeAttachment, editResend,
   setView: (v: View) => { state.view = v }
