@@ -158,16 +158,18 @@ async function changePass() {
     <!-- 账号安全 -->
     <div class="settings-card">
       <h2>账号安全</h2>
-      <div class="switch-line">
-        <span class="muted">原密码</span>
-        <el-input v-model="oldPass" type="password" show-password style="width: 220px" />
+      <div class="pass-form">
+        <div class="pass-row">
+          <label class="pass-label">原密码</label>
+          <el-input v-model="oldPass" type="password" show-password placeholder="请输入当前密码" />
+        </div>
+        <div class="pass-row">
+          <label class="pass-label">新密码</label>
+          <el-input v-model="newPass" type="password" show-password placeholder="至少 6 位" />
+          <el-button type="primary" @click="changePass">确认修改</el-button>
+        </div>
+        <div v-if="passMsg" class="muted pass-msg">{{ passMsg }}</div>
       </div>
-      <div class="switch-line">
-        <span class="muted">新密码（至少 6 位）</span>
-        <el-input v-model="newPass" type="password" show-password style="width: 220px" />
-        <el-button type="primary" @click="changePass">确认修改</el-button>
-      </div>
-      <div v-if="passMsg" class="muted">{{ passMsg }}</div>
     </div>
   </div>
 </template>
