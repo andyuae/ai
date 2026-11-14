@@ -124,34 +124,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 <template>
   <div class="chat-layout">
-    <!-- 左侧会话列表 -->
-    <aside class="sidebar">
-      <el-button type="primary" class="w100" @click="store.newDraft()">＋ 新开对话</el-button>
-      <div class="session-list">
+    <!-- 顶栏：品牌 + 全局操作 -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">群</span>
+        <div class="brand-txt">
+          <b>AI 群聊</b>
+          <small>一条消息 · 五路 AI 并行作答</small>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
+        <el-button text @click="store.exportCurrent()">导出</el-button>
+        <el-button text @click="store.deleteCurrent()">删除</el-button>
+        <el-button text @click="store.setView('settings')">设置</el-button>
+        <el-button text @click="store.logout()">退出登录</el-button>
+      </div>
+    </header>
+
+    <!-- 会话书签栏（横排，像浏览器书签一样） -->
+    <nav class="session-bar">
+      <button class="new-conv" @click="store.newDraft()">＋ 新开对话</button>
+      <div class="session-tabs">
         <div v-for="c in state.conversations" :key="c.id"
-          class="session-item" :class="{ current: c.id === state.currentConvId }"
+          class="s-tab" :class="{ current: c.id === state.currentConvId }"
+          :title="c.title"
           @click="store.openConversation(c.id)">
-          <div class="s-title">{{ c.title }} <span v-if="c.status === 'stopped'" class="st">（已停止）</span></div>
-          <div class="s-time">{{ c.updated_at ? new Date(c.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '' }}</div>
+          <span class="t-title">{{ c.title }}<i v-if="c.status === 'stopped'" class="st">（已停止）</i></span>
+          <span class="t-time">{{ c.updated_at ? new Date(c.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '' }}</span>
           <el-icon class="del-x" title="删除此会话" @click.stop="store.deleteConversation(c.id)"><Close /></el-icon>
         </div>
-        <div v-if="!state.conversations.length" class="muted pad10">暂无历史会话</div>
+        <div v-if="!state.conversations.length" class="empty-tip">暂无历史会话，点「＋ 新开对话」开始</div>
       </div>
-    </aside>
+    </nav>
 
-    <!-- 主区域 -->
-    <div class="chat-main">
-      <div class="topbar">
-        <div class="title">{{ state.chatTitle }} <small v-if="state.discussing">回答中……</small></div>
-        <div class="actions">
-          <el-button text @click="store.exportCurrent()">导出</el-button>
-          <el-button text @click="store.deleteCurrent()">删除</el-button>
-          <el-button text type="primary" @click="store.setView('settings')">设置</el-button>
-          <el-button text @click="store.logout()">退出登录</el-button>
-        </div>
-      </div>
-
-      <div ref="boxRef" class="messages" @scroll="onScroll">
+    <!-- 消息区 -->
+    <div ref="boxRef" class="messages" @scroll="onScroll">
         <template v-for="(item, gi) in renderList" :key="item.msg?.id || 'g' + gi">
           <!-- 用户消息 -->
           <div v-if="item.kind === 'user'" class="msg mine">
@@ -247,7 +255,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           <el-button v-else type="danger" class="btn-send" @click="store.stopAnswer()">停 止</el-button>
         </div>
       </div>
-    </div>
 
     <!-- 放大查看：点空白处 / 关闭按钮 / Esc 退出 -->
     <teleport to="body">
