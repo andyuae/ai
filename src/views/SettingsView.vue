@@ -55,6 +55,11 @@ async function saveBase(key: string) {
   baseInputs.value[key] = store.effBaseUrl(key)
 }
 
+/* 勾选模型变更：整理顺序后交给 store 落库（第一个勾选的为聊天时使用的模型） */
+function onModelChange(key: string, checked: string[]) {
+  store.setSelModels(key, checked || [])
+}
+
 async function changePass() {
   passMsg.value = ''
   const r = await store.changePassword(oldPass.value, newPass.value)
@@ -82,6 +87,9 @@ async function changePass() {
         <div class="prov-head">
           <span class="api-name">{{ p.name }}<span v-if="p.oversea" class="muted small">（海外）</span></span>
           <el-tag :type="p.configured ? 'success' : 'info'" size="small">{{ p.configured ? '已配置' : '未配置' }}</el-tag>
+          <span class="muted small">参与回答</span>
+          <el-switch :model-value="p.enabled" :disabled="!p.configured"
+            @change="(v: any) => store.toggleProvider(p.key, !!v)" />
         </div>
         <div class="prov-row">
           <el-input v-model="keyInputs[p.key]" type="password" show-password
@@ -99,16 +107,19 @@ async function changePass() {
           <el-button size="small" :disabled="!p.configured" :loading="state.modelBusy[p.key]" @click="store.fetchModelList(p.key)">拉取模型列表</el-button>
         </div>
         <div class="muted small">（用中转站密钥时，请把地址改为中转站给的地址，再拉取真实可用模型）</div>
-      </div>
-    </div>
-
-    <!-- 启用开关 -->
-    <div class="settings-card">
-      <h2>模型启用开关</h2>
-      <div class="sub">临时关闭某家 AI（例如密钥欠费、服务故障时），不影响其他成员。默认全部启用。</div>
-      <div v-for="p in state.providers" :key="p.key" class="switch-line">
-        <span>{{ p.name }}<span v-if="!p.configured" class="muted small">（未配置密钥）</span></span>
-        <el-switch :model-value="p.enabled" @change="(v: any) => store.toggleProvider(p.key, !!v)" />
+        <!-- 模型勾选：第一个勾选的为聊天时使用的模型 -->
+        <div v-if="p.models.length" class="model-checks">
+          <div class="mc-title">
+            使用模型：<b>{{ (state.settings.selModels?.[p.key] || [p.models[0]])[0] }}</b>
+            <span class="muted small">（勾选即保存到数据库，聊天页直接生效）</span>
+          </div>
+          <el-checkbox-group :model-value="state.settings.selModels?.[p.key] || [p.models[0]]"
+            @change="(v: any) => onModelChange(p.key, v)">
+            <el-checkbox v-for="m in p.models" :key="m" :value="m" class="mc-item">
+              {{ p.modelLabel[m] || m }}
+            </el-checkbox>
+          </el-checkbox-group>
+        </div>
       </div>
     </div>
 

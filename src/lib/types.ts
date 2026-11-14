@@ -47,4 +47,5 @@ export interface SettingsData {
   default_participants?: unknown[]
   baseUrls?: Record<string, string>
   relayModels?: Record<string, string[]>
+  selModels?: Record<string, string[]>   // 每家勾选的模型（第一个为发送时使用的模型）
 }

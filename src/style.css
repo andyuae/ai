@@ -252,15 +252,6 @@ body {
   padding: 12px 18px 14px;
   box-shadow: 0 -4px 16px rgba(20, 40, 80, .06);
 }
-.composer-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px }
-.member-chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-  border: 1px solid var(--line); border-radius: 999px; font-size: 12px; cursor: pointer; background: #f7f8fa;
-  opacity: .55; transition: all .15s;
-}
-.member-chip.on { opacity: 1; border-color: #c3d3ff; background: #eef3ff }
-.member-chip.on .dot { background: var(--el-color-primary) }
-.member-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #c0c6cc }
 .att-preview { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px }
 .att-chip {
   display: inline-flex; align-items: center; gap: 6px; background: #f2f4f7;
@@ -302,6 +293,13 @@ body {
 .test-result { font-size: 12px; margin-top: 6px }
 .test-result.ok { color: #18a05e }
 .test-result.fail { color: #d64541 }
+/* 模型勾选列表 */
+.model-checks { margin-top: 10px; padding: 10px 12px; background: #f8fafd; border: 1px solid #eef1f6; border-radius: 10px }
+.model-checks .mc-title { font-size: 12.5px; color: #3a4654; margin-bottom: 6px }
+.model-checks .mc-title b { color: var(--el-color-primary) }
+.model-checks .el-checkbox-group { display: flex; flex-wrap: wrap; gap: 2px 16px; max-height: 118px; overflow-y: auto }
+.model-checks .mc-item { height: 26px; margin-right: 0 }
+.model-checks .mc-item :deep(.el-checkbox__label) { font-size: 12.5px }
 .switch-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0 }
 /* 账号安全（修改密码）表单 */
 .pass-form { max-width: 480px; display: flex; flex-direction: column; gap: 12px; margin-top: 4px }

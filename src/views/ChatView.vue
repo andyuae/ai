@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
 import type { DbMessage } from '../lib/types'
 
 const state = store.state
-const currentModelSel = store.currentModelSel
 
 const boxRef = ref<HTMLElement>()
 const fileRef = ref<HTMLInputElement>()
@@ -78,13 +76,6 @@ function copyUser(m: DbMessage, e: MouseEvent) {
 }
 function copyAi(t: string, e: MouseEvent) {
   doCopy(t, e.currentTarget as HTMLElement)
-}
-
-/* 成员芯片：默认全部点亮；未配置/被关闭的置灰 */
-function chipUsable(p: any) { return p.configured && p.enabled }
-function chipClick(p: any) {
-  if (!p.configured) ElMessage.warning('请先在设置页配置该服务的密钥')
-  else if (!p.enabled) ElMessage.warning('该成员已在设置页关闭，请到设置页打开开关')
 }
 
 /* 菜单图标下拉命令 */
@@ -225,18 +216,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="composer">
-        <div class="composer-bar">
-          <span class="muted small">发给：</span>
-          <span v-for="p in state.providers" :key="p.key" class="member-chip"
-            :class="{ on: chipUsable(p), disabled: !chipUsable(p) }"
-            @click="chipClick(p)">
-            <span class="dot"></span>{{ p.name }}
-            <el-select v-if="p.models.length" :model-value="currentModelSel[p.key]" size="small"
-              style="width: 118px" @click.stop @change="(v: string) => currentModelSel[p.key] = v">
-              <el-option v-for="m in p.models" :key="m" :value="m" :label="p.modelLabel[m] || m" />
-            </el-select>
-          </span>
-        </div>
         <div v-if="state.attachments.length" class="att-preview">
           <span v-for="(a, i) in state.attachments" :key="i" class="att-chip">
             <img v-if="a.kind === 'image'" :src="a.dataUrl">

@@ -98,8 +98,13 @@ async function loadConfigs() {
   })
   /* 固定展示顺序：ChatGPT → Gemini → DeepSeek → Kimi（成员芯片与回答分块都按此排列） */
   state.providers.sort((a, b) => orderOf(a.key) - orderOf(b.key))
+  /* 发送用的模型 = 设置页勾选的模型（第一个），未勾选则默认第一个 */
   Object.keys(currentModelSel).forEach(k => delete currentModelSel[k])
-  state.providers.forEach(p => { if (p.enabled && p.models.length) currentModelSel[p.key] = p.models[0] })
+  state.providers.forEach(p => {
+    const sel = (state.settings.selModels?.[p.key] || []).filter(m => p.models.includes(m))
+    if (sel.length) currentModelSel[p.key] = sel[0]
+    else if (p.enabled && p.models.length) currentModelSel[p.key] = p.models[0]
+  })
 }
 
 async function upsertProvider(provider: string, patch: Record<string, unknown>) {
@@ -197,6 +202,12 @@ async function testProvider(key: string): Promise<void> {
       if (r.ok) {
         state.testResults[key] = `✅ 连通成功（模型 ${model}）`
         currentModelSel[key] = model
+        /* 测试成功的模型自动勾选为使用模型，并保存到数据库 */
+        try {
+          const rest = (state.settings.selModels?.[key] || []).filter((m: string) => m !== model)
+          state.settings.selModels = { ...(state.settings.selModels || {}), [key]: [model, ...rest] }
+          await persistSettings()
+        } catch { /* 保存勾选失败不影响测试结果 */ }
         return
       }
       lastErr = `模型 ${model}：` + (r.status === -1
@@ -241,7 +252,7 @@ async function fetchModelList(key: string): Promise<void> {
     state.settings.relayModels = { ...(state.settings.relayModels || {}), [key]: ids }
     await persistSettings()
     await loadConfigs()
-    state.testResults[key] = `✅ 获取到 ${ids.length} 个模型，已在聊天页模型下拉框中显示`
+    state.testResults[key] = `✅ 获取到 ${ids.length} 个模型，已在下方勾选列表中显示`
   } catch (e: any) {
     state.testResults[key] = '❌ 拉取模型列表失败：' + (e?.message || e)
   } finally {
@@ -252,6 +263,21 @@ async function fetchModelList(key: string): Promise<void> {
 async function toggleProvider(key: string, enabled: boolean) {
   await upsertProvider(key, { enabled })
   await loadConfigs()
+}
+
+/* 设置勾选的模型列表：第一个勾选的为发送时使用的模型；变更立即保存到数据库 */
+async function setSelModels(key: string, checked: string[]) {
+  const p = providerOf(key)
+  if (!p) return
+  let next = p.models.filter(m => checked.includes(m))
+  if (!next.length) next = [p.models[0]]   // 至少保留一个
+  state.settings.selModels = { ...(state.settings.selModels || {}), [key]: next }
+  currentModelSel[key] = next[0]
+  try {
+    await persistSettings()
+  } catch (e: any) {
+    ElMessage.error('模型选择保存失败：' + (e?.message || e))
+  }
 }
 
 export interface UsageCell { tokens: number; cost: number }
@@ -530,7 +556,7 @@ export const store = {
   state, currentModelSel, usableProviders,
   effBaseUrl, providerOf,
   enterApp, doLogin, logout, changePassword,
-  saveProviderKey, saveBaseUrl, testProvider, fetchModelList, toggleProvider, loadUsage,
+  saveProviderKey, saveBaseUrl, testProvider, fetchModelList, toggleProvider, setSelModels, loadUsage,
   testAllProviders,
   loadConversations, openConversation, deleteConversation, deleteCurrent, newDraft, exportCurrent,
   send, stopAnswer, addFiles, removeAttachment, editResend,
