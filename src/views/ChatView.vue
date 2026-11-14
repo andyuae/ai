@@ -87,6 +87,14 @@ function chipClick(p: any) {
   else if (!p.enabled) ElMessage.warning('该成员已在设置页关闭，请到设置页打开开关')
 }
 
+/* 菜单图标下拉命令 */
+function onMenu(cmd: string) {
+  if (cmd === 'export') store.exportCurrent()
+  else if (cmd === 'delete') store.deleteCurrent()
+  else if (cmd === 'settings') store.setView('settings')
+  else if (cmd === 'logout') store.logout()
+}
+
 /* 附件 */
 function onPickFiles(e: Event) {
   const input = e.target as HTMLInputElement
@@ -124,27 +132,22 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 <template>
   <div class="chat-layout">
-    <!-- 顶栏：品牌 + 全局操作 -->
-    <header class="app-header">
-      <div class="brand">
-        <span class="brand-mark">群</span>
-        <div class="brand-txt">
-          <b>AI 群聊</b>
-          <small>一条消息 · 五路 AI 并行作答</small>
-        </div>
-      </div>
-      <div class="top-actions">
-        <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
-        <el-button text @click="store.exportCurrent()">导出</el-button>
-        <el-button text @click="store.deleteCurrent()">删除</el-button>
-        <el-button text @click="store.setView('settings')">设置</el-button>
-        <el-button text @click="store.logout()">退出登录</el-button>
-      </div>
-    </header>
-
-    <!-- 会话书签栏（横排，像浏览器书签一样） -->
+    <!-- 单行工具栏：菜单图标 + 书签式会话栏 -->
     <nav class="session-bar">
+      <el-dropdown trigger="click" @command="onMenu">
+        <span class="brand-mark menu-trigger" title="菜单">群<i class="caret"></i></span>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="export">导出当前对话</el-dropdown-item>
+            <el-dropdown-item command="delete">删除当前对话</el-dropdown-item>
+            <el-dropdown-item command="settings" divided>设置</el-dropdown-item>
+            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
       <button class="new-conv" @click="store.newDraft()">＋ 新开对话</button>
+
       <div class="session-tabs">
         <div v-for="c in state.conversations" :key="c.id"
           class="s-tab" :class="{ current: c.id === state.currentConvId }"
@@ -156,6 +159,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
         </div>
         <div v-if="!state.conversations.length" class="empty-tip">暂无历史会话，点「＋ 新开对话」开始</div>
       </div>
+
+      <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
     </nav>
 
     <!-- 消息区 -->
