@@ -147,12 +147,50 @@ function imageParts(text: string, imgs: Attachment[], limit = 4, seen?: Set<stri
   return parts
 }
 
+/** 判断该用哪种语言回答：只看用户这条消息本身（附件标记与链接不参与判断） */
+export function detectReplyLang(text: string): 'zh' | 'en' | '' {
+  const t = String(text || '')
+    .replace(/\[\[附件:[\s\S]*?\]\]/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+  const cjk = (t.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) || []).length
+  const latin = (t.match(/[A-Za-z]/g) || []).length
+  if (cjk > 0) return 'zh'
+  if (latin >= 2) return 'en'
+  return ''
+}
+
+/** 取一条消息里的文字部分（图片消息的 content 是数组） */
+function lastUserText(messages: ChatMsg[]): string {
+  const m = [...messages].reverse().find(x => x.role === 'user')
+  if (!m) return ''
+  if (typeof m.content === 'string') return m.content
+  if (Array.isArray(m.content)) return (m.content.find((c: any) => c.type === 'text') || {}).text || ''
+  return ''
+}
+
+/** 历史里最近一条用户消息的正文（当前消息只有图、没写字时，用它判断语言） */
+function lastHistText(history: { sender: string; content: string }[]): string {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].sender !== 'user') continue
+    const t = parseAtts(history[i].content).text
+    if (t) return t
+  }
+  return ''
+}
+
 export function buildMessages(
   provider: string, model: string, history: { sender: string; provider?: string; status?: string; content: string }[],
   curText: string, curAtts: Attachment[]
 ): ChatMsg[] {
   const meta = PROVIDERS[provider] || { name: provider }
-  const sys = `你是用户的 AI 助手 ${meta.name}（当前模型：${model}）。用户把同一条消息同时发给了多个 AI 助手，各 AI 彼此独立作答、互相看不到对方的回答。请独立、直接地回答用户，用中文，条理清晰；若消息带有图片或文件附件，请结合附件内容回答（图片请先准确描述你看到的内容，再作分析）。`
+  /* 跟随用户提问的语言，而不是固定中文：英文模型对一句"用中文"往往不买账 */
+  const lang = detectReplyLang(curText) || detectReplyLang(lastHistText(history))
+  const langRule = lang === 'en'
+    ? '【回答语言】Reply in English — always match the language of the user\'s latest message; if the user switches to another language, switch with them. Never answer in Chinese just because the system prompt, earlier context or searched material is Chinese.'
+    : lang === 'zh'
+      ? '【回答语言】用中文回答——用户这条消息用的是中文（简体回简体，繁体回繁体）。若用户改用英文或其它语言提问，就跟着切换；不要因为参考材料是英文就改答英文。'
+      : '【回答语言】用与用户这条消息相同的语言回答；Always answer in the same language the user used in their latest message.'
+  const sys = `你是用户的 AI 助手 ${meta.name}（当前模型：${model}）。用户把同一条消息同时发给了多个 AI 助手，各 AI 彼此独立作答、互相看不到对方的回答。请独立、直接地回答用户，条理清晰。${langRule}若消息带有图片或文件附件，请结合附件内容回答（图片请先准确描述你看到的内容，再作分析）。`
   const msgs: ChatMsg[] = [{ role: 'system', content: sys }]
   const hist = history.slice(0, -1).slice(-30)
 
@@ -200,9 +238,12 @@ export function buildMessages(
 /* ================= 借别家的眼睛：把图片转成文字描述 ================= */
 export async function describeImages(opts: {
   provider: string; model: string; apiKey: string; baseUrl: string
-  images: Attachment[]; signal: AbortSignal
+  images: Attachment[]; signal: AbortSignal; lang?: 'zh' | 'en' | ''
 }): Promise<string> {
-  const prompt = '下面是一张或多张图片。请客观、完整地描述看到的内容：整体是什么（截图 / 照片 / 表格 / 图表 / 聊天记录）、画面中的文字（尽量逐字准确）、关键数字与它们之间的关系。只做描述，不要分析、不要评价、不要使用 Markdown 标题。'
+  /* 转述语言跟着用户提问走：英文提问就用英文转述，别把中文转述塞给英文模型 */
+  const prompt = opts.lang === 'en'
+    ? 'Here are one or more images. Describe objectively and completely in English: what it is overall (screenshot / photo / table / chart / chat log), the text in it (as verbatim as you can), and the key numbers and how they relate. Describe only — do not analyse, do not evaluate, and do not use Markdown headings.'
+    : '下面是一张或多张图片。请客观、完整地描述看到的内容：整体是什么（截图 / 照片 / 表格 / 图表 / 聊天记录）、画面中的文字（尽量逐字准确）、关键数字与它们之间的关系。只做描述，不要分析、不要评价、不要使用 Markdown 标题。'
   const msgs: ChatMsg[] = [{ role: 'user', content: imageParts(prompt, opts.images, 4) }]
   const r = await streamChatOnce({ baseUrl: opts.baseUrl, apiKey: opts.apiKey, model: opts.model, messages: msgs, signal: opts.signal })
   return String(r.content || '').trim()
@@ -240,7 +281,7 @@ export async function callAI(opts: {
   apiKey: string; baseUrl: string
   availableModels?: string[]
   deepseekApiKey?: string | null
-  describeImages?: (imgs: Attachment[]) => Promise<{ text: string; by: string }>
+  describeImages?: (imgs: Attachment[], lang?: 'zh' | 'en' | '') => Promise<{ text: string; by: string }>
   onDelta?: (delta: string, all: string) => void
   signal: AbortSignal
 }): Promise<{ content: string; usage: { pt: number; ct: number }; model: string; note: string }> {
@@ -250,6 +291,7 @@ export async function callAI(opts: {
   /* 带图片时：能自己看图就用自己；不能看就借别家的眼睛转述成文字，绝不直接甩错误 */
   let note = ''
   let bridged = false
+  const replyLang = detectReplyLang(lastUserText(messages))
   const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'))
   if (hasImages) {
     const vision = pickVisionModel(provider, model, availableModels)
@@ -258,7 +300,7 @@ export async function callAI(opts: {
     } else {
       const imgs = collectImages(messages)
       let bridge: { text: string; by: string } | null = null
-      try { bridge = opts.describeImages ? await opts.describeImages(imgs) : null } catch { bridge = null }
+      try { bridge = opts.describeImages ? await opts.describeImages(imgs, replyLang) : null } catch { bridge = null }
       if (!bridge || !bridge.text) {
         throw new Error(`当前模型 ${model} 不支持图片识别，也没有其他可用的视觉模型可以代为转述。请在设置页为任意一家勾选支持图片的模型（名字含 vision / 4o / gemini / claude 等）。`)
       }
@@ -270,14 +312,7 @@ export async function callAI(opts: {
 
   /* 始终联网：先查实时资料注入系统提示；失败不阻塞回答 */
   try {
-    const lastUser = [...messages].reverse().find(m => m.role === 'user')
-    let q = ''
-    if (lastUser) {
-      q = typeof lastUser.content === 'string'
-        ? lastUser.content
-        : (Array.isArray(lastUser.content) ? ((lastUser.content.find((c: any) => c.type === 'text') || {}).text || '') : '')
-    }
-    q = String(q).replace(/\s+/g, ' ').trim().slice(0, 100)
+    let q = String(lastUserText(messages)).replace(/\s+/g, ' ').trim().slice(0, 100)
     /* 只发了图、没写字时不做无意义的联网搜索 */
     if (q && deepseekApiKey && !/^（见(附件|图片)）$/.test(q)) {
       const results = await deepseekWebSearch(q, deepseekApiKey, signal)
@@ -304,7 +339,7 @@ export async function callAI(opts: {
     if (aborted || !hasImages || bridged || !opts.describeImages) throw e
     const imgs = collectImages(messages)
     let bridge: { text: string; by: string } | null = null
-    try { bridge = await opts.describeImages(imgs) } catch { bridge = null }
+    try { bridge = await opts.describeImages(imgs, replyLang) } catch { bridge = null }
     if (!bridge || !bridge.text) throw e
     const first = shortErr(e)
     messages = imagesToText(messages, bridge.text)

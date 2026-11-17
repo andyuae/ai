@@ -76,12 +76,12 @@ function callOne(
     availableModels: prov.models,
     deepseekApiKey: (providerOf('deepseek') || {}).apiKey,
     /* 该服务没有可用的视觉模型（或直传图片失败）时，借别家的眼睛把图片转述成文字 */
-    describeImages: async (imgs) => {
+    describeImages: async (imgs, lang) => {
       const helper = pickVisionHelper(p.provider)
       if (!helper) return { text: '', by: '' }
       const desc = await describeImages({
         provider: helper.key, model: helper.model, apiKey: helper.apiKey,
-        baseUrl: helper.baseUrl, images: imgs, signal
+        baseUrl: helper.baseUrl, images: imgs, signal, lang
       })
       return { text: desc, by: helper.name }
     },
