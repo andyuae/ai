@@ -182,11 +182,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
                 </button>
               </div>
               <div class="fast-body">
-                <span v-if="m.status === 'error'" class="err">（本次调用失败）</span>
+                <span v-if="state.retryingId === m.id" class="typing"><i></i><i></i><i></i></span>
+                <span v-else-if="m.status === 'error'" class="err">{{ m.content || (provName(m.provider) + ' 本次调用失败') }}</span>
                 <template v-else>{{ m.content }}</template>
               </div>
               <div class="fast-foot">
                 <button class="fast-copy" @click="copyAi(m.content, $event)">复制</button>
+                <button v-if="m.status === 'error' && !state.discussing" class="fast-copy retry"
+                  title="只重试这一家" @click="store.retryOne(m)">重试</button>
               </div>
             </div>
           </div>

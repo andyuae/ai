@@ -63,9 +63,19 @@ async function streamChatOnce(opts: {
     signal
   })
   if (!res.ok) {
+    /* 把中转站/服务商的原始说明带出来，否则界面上只剩一句"调用失败"，没法定位 */
     let detail = ''
-    try { detail = (await res.text()).slice(0, 200) } catch { /* ignore */ }
-    throw new Error(`接口错误 HTTP ${res.status} ${detail}`)
+    try {
+      const raw = await res.text()
+      let msg = ''
+      try {
+        const j = JSON.parse(raw)
+        msg = j?.error?.message || j?.error || j?.message || ''
+        if (typeof msg === 'object') msg = JSON.stringify(msg)
+      } catch { msg = raw }
+      detail = String(msg || raw || '').replace(/\s+/g, ' ').trim().slice(0, 240)
+    } catch { /* ignore */ }
+    throw new Error(`HTTP ${res.status}${detail ? '：' + detail : ''}`)
   }
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()
@@ -83,15 +93,29 @@ async function streamChatOnce(opts: {
       if (data === '[DONE]') continue
       try {
         const json = JSON.parse(data)
+        /* 个别中转站会在 200 的流里塞错误对象 */
+        if (json.error) {
+          const m2 = json.error.message || json.error
+          throw new Error(typeof m2 === 'string' ? m2 : JSON.stringify(m2))
+        }
         const ch = json.choices && json.choices[0]
-        if (ch && ch.delta && ch.delta.content) {
-          content += ch.delta.content
-          onDelta && onDelta(ch.delta.content, content)
+        const d = ch && ch.delta && ch.delta.content
+        if (d) {
+          /* 少数中转站把 content 返回成 [{type:'text',text:'…'}] */
+          const piece = Array.isArray(d) ? d.map((x: any) => (typeof x === 'string' ? x : (x?.text || ''))).join('') : String(d)
+          if (piece) {
+            content += piece
+            onDelta && onDelta(piece, content)
+          }
         }
         if (json.usage) usage = { pt: json.usage.prompt_tokens || 0, ct: json.usage.completion_tokens || 0 }
-      } catch { /* 忽略不完整行 */ }
+      } catch (e: any) {
+        if (e && e.message && !/Unexpected|JSON/.test(e.message)) throw e
+        /* 忽略不完整行 / 非 JSON 行 */
+      }
     }
   }
+  if (!content) throw new Error('模型没有返回任何内容（服务返回 200 但响应为空，常见于中转站拒绝了图片或该模型不可用）')
   return { content, usage }
 }
 
@@ -99,11 +123,27 @@ async function streamChatOnce(opts: {
    系统提示 + 该 AI 视角的历史 + 当前消息。
    图片用 OpenAI 兼容的 image_url + dataURL 发送；
    历史里最近两条带图消息也保留图片，这样"这张图里……"这类追问才不会丢图。 */
-function imageParts(text: string, imgs: Attachment[], limit = 4): any[] {
+/* 单次请求里图片 base64 的字符总量软上限。
+   超过后不再带历史图片（历史里同一张图往往会重复出现，把请求体撑到几 MB，
+   中转站会直接 413/400，表现就是"某一家失败"，但看图本身没问题）。 */
+export const IMG_BODY_BUDGET = 5 * 1024 * 1024
+
+function imgKey(u: string) { return u.length + '|' + u.slice(0, 40) + '|' + u.slice(-40) }
+
+function imageParts(text: string, imgs: Attachment[], limit = 4, seen?: Set<string>): any[] {
   const parts: any[] = [{ type: 'text', text: text || '（见图片）' }]
-  imgs.slice(0, limit).forEach(im => {
-    if (im.dataUrl) parts.push({ type: 'image_url', image_url: { url: im.dataUrl, detail: 'auto' } })
-  })
+  let n = 0
+  for (const im of imgs) {
+    if (n >= limit) break
+    if (!im.dataUrl) continue
+    const k = imgKey(im.dataUrl)
+    if (seen) {
+      if (seen.has(k)) continue   // 同一张图一次请求里只发一次
+      seen.add(k)
+    }
+    parts.push({ type: 'image_url', image_url: { url: im.dataUrl, detail: 'auto' } })
+    n++
+  }
   return parts
 }
 
@@ -116,9 +156,15 @@ export function buildMessages(
   const msgs: ChatMsg[] = [{ role: 'system', content: sys }]
   const hist = history.slice(0, -1).slice(-30)
 
+  /* 本次消息的图片优先：与历史重复的图不再重发，请求体不至于翻倍 */
+  const curImgs = curAtts.filter(a => a.kind === 'image').slice(0, 6)
+  const curImgsChars = curImgs.reduce((s, im) => s + (im.dataUrl ? im.dataUrl.length : 0), 0)
+  const seen = new Set(curImgs.filter(im => im.dataUrl).map(im => imgKey(im.dataUrl!)))
+  const allowHistImgs = curImgsChars < IMG_BODY_BUDGET
+
   /* 最近 2 条带图的消息保留图片（每条最多 2 张），保证多轮追问可用 */
   const imgMsgs = hist.filter(m => m.sender === 'user' && parseAtts(m.content).atts.some(a => a.kind === 'image'))
-  const keepImgs = new Set(imgMsgs.slice(-2))
+  const keepImgs = allowHistImgs ? new Set(imgMsgs.slice(-2)) : new Set()
   /* 最近 1 条带文件的消息保留正文，保证"表格第三列什么意思"这类追问可用 */
   const fileMsgs = hist.filter(m => m.sender === 'user' && parseAtts(m.content).atts.some(a => a.kind === 'file'))
   const keepFile = fileMsgs[fileMsgs.length - 1]
@@ -128,7 +174,7 @@ export function buildMessages(
       const { text, atts } = parseAtts(m.content)
       const imgs = atts.filter(a => a.kind === 'image')
       if (keepImgs.has(m) && imgs.length) {
-        msgs.push({ role: 'user', content: imageParts(text, imgs, 2) })
+        msgs.push({ role: 'user', content: imageParts(text, imgs, 2, seen) })
       } else if (m === keepFile) {
         let body = text || ''
         atts.filter(a => a.kind === 'file').forEach(f => {
@@ -145,8 +191,7 @@ export function buildMessages(
 
   let txt = curText || ''
   curAtts.filter(a => a.kind === 'file').forEach(f => { txt += `\n\n【附件文件：${f.name}】\n${f.text}` })
-  const images = curAtts.filter(a => a.kind === 'image')
-  const content: any = images.length ? imageParts(txt, images, 6) : (txt || '（见附件）')
+  const content: any = curImgs.length ? imageParts(txt, curImgs, 6, new Set<string>()) : (txt || '（见附件）')
   msgs.push({ role: 'user', content })
   return msgs
 }
@@ -204,6 +249,7 @@ export async function callAI(opts: {
 
   /* 带图片时：能自己看图就用自己；不能看就借别家的眼睛转述成文字，绝不直接甩错误 */
   let note = ''
+  let bridged = false
   const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'))
   if (hasImages) {
     const vision = pickVisionModel(provider, model, availableModels)
@@ -211,13 +257,14 @@ export async function callAI(opts: {
       model = vision
     } else {
       const imgs = collectImages(messages)
-      let bridged: { text: string; by: string } | null = null
-      try { bridged = opts.describeImages ? await opts.describeImages(imgs) : null } catch { bridged = null }
-      if (!bridged || !bridged.text) {
+      let bridge: { text: string; by: string } | null = null
+      try { bridge = opts.describeImages ? await opts.describeImages(imgs) : null } catch { bridge = null }
+      if (!bridge || !bridge.text) {
         throw new Error(`当前模型 ${model} 不支持图片识别，也没有其他可用的视觉模型可以代为转述。请在设置页为任意一家勾选支持图片的模型（名字含 vision / 4o / gemini / claude 等）。`)
       }
-      messages = imagesToText(messages, bridged.text)
-      note = `图片由 ${bridged.by} 转述`
+      messages = imagesToText(messages, bridge.text)
+      note = `图片由 ${bridge.by} 转述`
+      bridged = true
     }
   }
 
@@ -246,9 +293,36 @@ export async function callAI(opts: {
     }
   } catch { /* 搜索失败不影响正常回答 */ }
 
-  const r = await streamChatOnce({ baseUrl, apiKey, model, messages, onDelta, signal })
+  const send = () => streamChatOnce({ baseUrl, apiKey, model, messages, onDelta, signal })
+  let r: Awaited<ReturnType<typeof send>>
+  try {
+    r = await send()
+  } catch (e: any) {
+    const aborted = e?.name === 'AbortError'
+    /* 自己看图失败（常见：中转站不给该模型传图、图太大被拒、该模型其实不支持视觉）
+       → 自动降级：借别家的眼睛把图片转述成文字，再回答一次，而不是让这一列空着 */
+    if (aborted || !hasImages || bridged || !opts.describeImages) throw e
+    const imgs = collectImages(messages)
+    let bridge: { text: string; by: string } | null = null
+    try { bridge = await opts.describeImages(imgs) } catch { bridge = null }
+    if (!bridge || !bridge.text) throw e
+    const first = shortErr(e)
+    messages = imagesToText(messages, bridge.text)
+    note = `图片由 ${bridge.by} 转述`
+    onDelta && onDelta('', '')   // 清掉第一次可能已经流出的半截内容
+    try {
+      r = await send()
+    } catch (e2: any) {
+      throw new Error(`直传图片失败（${first}）；改用 ${bridge.by} 转述图片后仍失败（${shortErr(e2)}）`)
+    }
+  }
   const usage = r.usage || { pt: 0, ct: Math.round((r.content || '').length / 1.5) }
   return { content: r.content, usage, model, note }
+}
+
+function shortErr(e: any): string {
+  const m = String((e && e.message) || e || '未知错误').replace(/\s+/g, ' ')
+  return m.length > 120 ? m.slice(0, 120) + '…' : m
 }
 
 /* ================= 连通测试：依次尝试候选模型，404 才换下一个 ================= */

@@ -26,6 +26,7 @@ const state = reactive({
   testBusy: {} as Record<string, boolean>,
   testAllBusy: false,                          // 一键测试全部进行中
   modelBusy: {} as Record<string, boolean>,
+  retryingId: 0,                               // 正在重试的那条失败消息 id
   chatTitle: '新对话'
 })
 
@@ -59,6 +60,33 @@ function pickVisionHelper(exclude: string) {
 
 function dbErr(op: string, error: any): never {
   throw new Error(op + '失败：' + (error?.message || error))
+}
+
+/* 单个 AI 的一次完整调用（发送与"重试"共用同一套逻辑） */
+function callOne(
+  p: { provider: string; model: string },
+  history: DbMessage[], text: string, atts: Attachment[],
+  onDelta: (d: string, all: string) => void, signal: AbortSignal
+) {
+  const prov = providerOf(p.provider)!
+  return callAI({
+    provider: p.provider, model: p.model,
+    messages: buildMessages(p.provider, p.model, history, text, atts),
+    apiKey: prov.apiKey!, baseUrl: effBaseUrl(p.provider),
+    availableModels: prov.models,
+    deepseekApiKey: (providerOf('deepseek') || {}).apiKey,
+    /* 该服务没有可用的视觉模型（或直传图片失败）时，借别家的眼睛把图片转述成文字 */
+    describeImages: async (imgs) => {
+      const helper = pickVisionHelper(p.provider)
+      if (!helper) return { text: '', by: '' }
+      const desc = await describeImages({
+        provider: helper.key, model: helper.model, apiKey: helper.apiKey,
+        baseUrl: helper.baseUrl, images: imgs, signal
+      })
+      return { text: desc, by: helper.name }
+    },
+    onDelta, signal
+  })
 }
 
 /* ================= 数据加载 ================= */
@@ -481,42 +509,27 @@ async function send() {
         participants, status: 'active', updated_at: new Date().toISOString()
       }).eq('id', state.currentConvId)
     }
-    const um = await saveMessage({ conversation_id: state.currentConvId, sender: 'user', content: fullContent })
-    const userMsg: DbMessage = { id: um, conversation_id: state.currentConvId, sender: 'user', content: fullContent, tokens: 0, status: 'done' }
+    const um = await saveMessage({ conversation_id: state.currentConvId!, sender: 'user', content: fullContent })
+    const userMsg: DbMessage = { id: um, conversation_id: state.currentConvId!, sender: 'user', content: fullContent, tokens: 0, status: 'done' }
     state.currentMessages.push(userMsg)
 
     /* 同时发给所有 AI：并行流式回答。
        关键：回答进行期间不把已完成的写入历史消息（否则会额外渲染一个历史网格、
        页面反复重排）。所有 AI 都固定在 liveCols 自己的"跑道"里，直到全部跑完 */
     state.liveCols = participants.map(p => ({ provider: p.provider, model: p.model, text: '', state: 'running' as const }))
-    const deepseekKey = (providerOf('deepseek') || {}).apiKey
     const historySnapshot = state.currentMessages.slice()
     aborters = participants.map(() => new AbortController())
     const finished: DbMessage[] = []
 
     await Promise.all(participants.map(async (p, i) => {
       const col = state.liveCols[i]
-      const prov = providerOf(p.provider)!
       try {
-        const { content, usage, model: usedModel, note } = await callAI({
-          provider: p.provider, model: p.model,
-          messages: buildMessages(p.provider, p.model, historySnapshot, text, atts),
-          apiKey: prov.apiKey!, baseUrl: effBaseUrl(p.provider),
-          availableModels: prov.models,
-          deepseekApiKey: deepseekKey,
-          /* 该服务没有可用的视觉模型时，借别家的眼睛把图片转述成文字 */
-          describeImages: async (imgs) => {
-            const helper = pickVisionHelper(p.provider)
-            if (!helper) return { text: '', by: '' }
-            const desc = await describeImages({
-              provider: helper.key, model: helper.model, apiKey: helper.apiKey,
-              baseUrl: helper.baseUrl, images: imgs, signal: aborters[i].signal
-            })
-            return { text: desc, by: helper.name }
-          },
-          onDelta: (_d, all) => { col.text = all },
-          signal: aborters[i].signal
-        })
+        const { content, usage, model: usedModel, note } = await callOne(
+          { provider: p.provider, model: p.model },
+          historySnapshot, text, atts,
+          (_d, all) => { col.text = all },
+          aborters[i].signal
+        )
         col.text = content
         /* 带图时可能换用视觉模型：表头显示实际用的模型，避免"表头与报错对不上" */
         col.model = usedModel
@@ -530,12 +543,14 @@ async function send() {
         logUsage(p.provider, usedModel, usage)
       } catch (e: any) {
         const aborted = e?.name === 'AbortError' || state.stopFlag
+        const msg = aborted ? '已停止' : (e?.message || String(e))
         col.state = 'error'
-        col.error = aborted ? '已停止' : (e?.message || String(e))
+        col.error = msg
         if (!aborted) {
           try {
-            const id = await saveMessage({ conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: '', status: 'error' })
-            finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: '', tokens: 0, status: 'error' })
+            /* 把真实原因存进去：否则历史里只剩一句"本次调用失败"，事后无法定位 */
+            const id = await saveMessage({ conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 500), status: 'error' })
+            finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 500), tokens: 0, status: 'error' })
           } catch { /* ignore */ }
         }
       }
@@ -552,6 +567,53 @@ async function send() {
   } finally {
     aborters = []
     state.discussing = false
+  }
+}
+
+/* ================= 单列重试：某一家失败，不必整条消息重发 ================= */
+async function retryOne(m: DbMessage) {
+  if (state.discussing) { ElMessage.warning('请等当前回答结束后再重试'); return }
+  if (!m.provider || state.currentConvId == null) return
+  const prov = providerOf(m.provider)
+  if (!prov?.apiKey) { ElMessage.warning('该服务的密钥不可用，请到设置页重新配置'); return }
+  const idx = state.currentMessages.findIndex(x => x.id === m.id)
+  if (idx < 0) return
+  let uIdx = -1
+  for (let k = idx - 1; k >= 0; k--) {
+    if (state.currentMessages[k].sender === 'user') { uIdx = k; break }
+  }
+  if (uIdx < 0) return
+
+  const { text, atts } = parseAtts(state.currentMessages[uIdx].content)
+  const history = state.currentMessages.slice(0, uIdx + 1)
+  const model = m.model || prov.models[0]
+
+  state.discussing = true
+  state.stopFlag = false
+  state.retryingId = m.id
+  const ctrl = new AbortController()
+  aborters = [ctrl]
+  try {
+    const r = await callOne({ provider: m.provider, model }, history, text, atts, () => { /* 历史卡片只在结束时更新 */ }, ctrl.signal)
+    m.content = r.content
+    m.status = 'done'
+    m.model = r.model
+    m.tokens = r.usage.ct
+    try {
+      await sb.from('messages').update({ content: r.content, status: 'done', model: r.model, tokens: r.usage.ct }).eq('id', m.id)
+    } catch { /* 落库失败不影响本次展示 */ }
+    logUsage(m.provider, r.model, r.usage)
+    ElMessage.success(`${prov.name} 重试成功`)
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? '已停止' : (e?.message || String(e))
+    m.content = msg.slice(0, 500)
+    m.status = 'error'
+    try { await sb.from('messages').update({ content: m.content, status: 'error' }).eq('id', m.id) } catch { /* ignore */ }
+    ElMessage.error(`${prov.name} 仍然失败（原因已写在该列）`)
+  } finally {
+    state.retryingId = 0
+    state.discussing = false
+    aborters = []
   }
 }
 
@@ -585,7 +647,7 @@ export const store = {
   saveProviderKey, saveBaseUrl, testProvider, fetchModelList, toggleProvider, setSelModels, loadUsage,
   testAllProviders,
   loadConversations, openConversation, deleteConversation, deleteCurrent, newDraft, exportCurrent,
-  send, stopAnswer, addFiles, removeAttachment, editResend,
+  send, stopAnswer, retryOne, addFiles, removeAttachment, editResend,
   setView: (v: View) => { state.view = v }
 }
 
