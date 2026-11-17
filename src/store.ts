@@ -486,22 +486,25 @@ async function send() {
       const col = state.liveCols[i]
       const prov = providerOf(p.provider)!
       try {
-        const { content, usage } = await callAI({
+        const { content, usage, model: usedModel } = await callAI({
           provider: p.provider, model: p.model,
           messages: buildMessages(p.provider, p.model, historySnapshot, text, atts),
           apiKey: prov.apiKey!, baseUrl: effBaseUrl(p.provider),
+          availableModels: prov.models,
           deepseekApiKey: deepseekKey,
           onDelta: (_d, all) => { col.text = all },
           signal: aborters[i].signal
         })
         col.text = content
+        /* 带图时可能换用视觉模型：表头显示实际用的模型，避免"表头与报错对不上" */
+        col.model = usedModel
         col.state = 'done'
         const id = await saveMessage({
           conversation_id: state.currentConvId!, sender: 'assistant',
-          provider: p.provider, model: p.model, content, tokens: usage.ct
+          provider: p.provider, model: usedModel, content, tokens: usage.ct
         })
-        finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content, tokens: usage.ct, status: 'done' })
-        logUsage(p.provider, p.model, usage)
+        finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: usedModel, content, tokens: usage.ct, status: 'done' })
+        logUsage(p.provider, usedModel, usage)
       } catch (e: any) {
         const aborted = e?.name === 'AbortError' || state.stopFlag
         col.state = 'error'

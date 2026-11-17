@@ -1,6 +1,39 @@
 import type { Attachment, ChatMsg } from './types'
-import { attSummary } from './atts'
+import { attSummary, parseAtts } from './atts'
 import { PROVIDERS } from '../config'
+
+/* ================= 图片识别：模型判定与选择 =================
+   不写死"视觉模型"名字（写死会导致中转站无该模型 → 403），
+   而是先看当前模型是否本身就能看图，再从"你这个密钥实际可用的模型列表"里挑。 */
+
+/** 名字里带这些特征的多半是多模态模型 */
+const VISION_HINT = /(vision|4o\b|gpt-4\.1|gpt-5|gpt-6|gemini|claude|o3|o4|llava|pixtral|internvl|glm-4v|qwen[\w.-]*vl|yi-vision|doubao[\w.-]*vision)/i
+
+export function looksVisionModel(model: string): boolean {
+  return VISION_HINT.test(String(model || ''))
+}
+
+/**
+ * 为带图片的请求挑一个能看图的模型。
+ * @param available 该服务当前可选的模型（来自设置页"拉取模型列表"/默认列表）
+ * @returns 可用的视觉模型名；返回 '' 表示没有任何可用的视觉模型
+ */
+export function pickVisionModel(provider: string, current: string, available?: string[]): string {
+  const meta: any = PROVIDERS[provider] || {}
+  const hintList: string[] = meta.visionModels || []
+  const catalog: string[] = available && available.length ? available : (meta.models || [])
+
+  /* 1) 当前模型本身就能看图 → 直接用它，不做任何替换（避免换成无权限的模型） */
+  if (hintList.includes(current) || looksVisionModel(current)) return current
+
+  /* 2) 配置里标注的视觉模型里，挑一个"你这个密钥确实能用"的 */
+  const fromHint = hintList.find((m: string) => catalog.includes(m))
+  if (fromHint) return fromHint
+
+  /* 3) 再按名字特征在可用列表里找 */
+  const guessed = catalog.find(looksVisionModel)
+  return guessed || ''
+}
 
 /* ================= DeepSeek 官方搜索接口（四家统一联网数据源，¥0.005/次） ================= */
 export async function deepseekWebSearch(query: string, apiKey: string, signal?: AbortSignal) {
@@ -63,30 +96,48 @@ async function streamChatOnce(opts: {
 }
 
 /* ================= 为某个 AI 构造完整对话 =================
-   系统提示 + 该 AI 视角的历史（附件只留名字）+ 当前消息（图片为 content 数组、文件全文附后） */
+   系统提示 + 该 AI 视角的历史 + 当前消息。
+   图片用 OpenAI 兼容的 image_url + dataURL 发送；
+   历史里最近两条带图消息也保留图片，这样"这张图里……"这类追问才不会丢图。 */
+function imageParts(text: string, imgs: Attachment[], limit = 4): any[] {
+  const parts: any[] = [{ type: 'text', text: text || '（见图片）' }]
+  imgs.slice(0, limit).forEach(im => {
+    if (im.dataUrl) parts.push({ type: 'image_url', image_url: { url: im.dataUrl, detail: 'auto' } })
+  })
+  return parts
+}
+
 export function buildMessages(
   provider: string, model: string, history: { sender: string; provider?: string; status?: string; content: string }[],
   curText: string, curAtts: Attachment[]
 ): ChatMsg[] {
   const meta = PROVIDERS[provider] || { name: provider }
-  const sys = `你是用户的 AI 助手 ${meta.name}（当前模型：${model}）。用户把同一条消息同时发给了多个 AI 助手，各 AI 彼此独立作答、互相看不到对方的回答。请独立、直接地回答用户，用中文，条理清晰；若消息带有图片或文件附件，请结合附件内容回答。`
+  const sys = `你是用户的 AI 助手 ${meta.name}（当前模型：${model}）。用户把同一条消息同时发给了多个 AI 助手，各 AI 彼此独立作答、互相看不到对方的回答。请独立、直接地回答用户，用中文，条理清晰；若消息带有图片或文件附件，请结合附件内容回答（图片请先准确描述你看到的内容，再作分析）。`
   const msgs: ChatMsg[] = [{ role: 'system', content: sys }]
-  history.slice(0, -1).slice(-30).forEach(m => {
-    if (m.sender === 'user') msgs.push({ role: 'user', content: attSummary(m.content) })
-    else if (m.sender === 'assistant' && m.provider === provider && m.status !== 'error' && m.content)
+  const hist = history.slice(0, -1).slice(-30)
+
+  /* 最近 2 条带图的消息保留图片（每条最多 2 张），保证多轮追问可用 */
+  const imgMsgs = hist.filter(m => m.sender === 'user' && parseAtts(m.content).atts.some(a => a.kind === 'image'))
+  const keepImgs = new Set(imgMsgs.slice(-2))
+
+  hist.forEach(m => {
+    if (m.sender === 'user') {
+      const { text, atts } = parseAtts(m.content)
+      const imgs = atts.filter(a => a.kind === 'image')
+      if (keepImgs.has(m) && imgs.length) {
+        msgs.push({ role: 'user', content: imageParts(text, imgs, 2) })
+      } else {
+        msgs.push({ role: 'user', content: attSummary(m.content) })
+      }
+    } else if (m.sender === 'assistant' && m.provider === provider && m.status !== 'error' && m.content) {
       msgs.push({ role: 'assistant', content: m.content })
+    }
   })
-  let txt = curText || '（见附件）'
+
+  let txt = curText || ''
   curAtts.filter(a => a.kind === 'file').forEach(f => { txt += `\n\n【附件文件：${f.name}】\n${f.text}` })
   const images = curAtts.filter(a => a.kind === 'image')
-  let content: any
-  if (images.length) {
-    const parts: any[] = [{ type: 'text', text: txt }]
-    images.forEach(im => parts.push({ type: 'image_url', image_url: { url: im.dataUrl } }))
-    content = parts
-  } else {
-    content = txt
-  }
+  const content: any = images.length ? imageParts(txt, images, 6) : (txt || '（见附件）')
   msgs.push({ role: 'user', content })
   return msgs
 }
@@ -95,17 +146,26 @@ export function buildMessages(
 export async function callAI(opts: {
   provider: string; model: string; messages: ChatMsg[]
   apiKey: string; baseUrl: string
-  visionModel?: string; visionModels?: string[]
+  availableModels?: string[]
   deepseekApiKey?: string | null
   onDelta?: (delta: string, all: string) => void
   signal: AbortSignal
-}): Promise<{ content: string; usage: { pt: number; ct: number } }> {
+}): Promise<{ content: string; usage: { pt: number; ct: number }; model: string }> {
   let { provider, model, messages } = opts
-  const { apiKey, baseUrl, visionModel, visionModels, deepseekApiKey, onDelta, signal } = opts
+  const { apiKey, baseUrl, availableModels, deepseekApiKey, onDelta, signal } = opts
 
-  const meta = PROVIDERS[provider]
+  /* 带图片时确认模型真的能看图；只在"确实需要"且"你确实有权限"时才换模型 */
   const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'))
-  if (hasImages && meta?.visionModels && !meta.visionModels.includes(model)) model = meta.visionModel || model
+  if (hasImages) {
+    const vision = pickVisionModel(provider, model, availableModels)
+    if (!vision) {
+      throw new Error(
+        `当前模型 ${model} 不能识别图片，且该服务的可用模型里没有可用的视觉模型。` +
+        `请在设置页点「拉取模型列表」，勾选一个支持图片的模型（名字含 vision / 4o / gemini / claude 等），再重试。`
+      )
+    }
+    model = vision
+  }
 
   /* 始终联网：先查实时资料注入系统提示；失败不阻塞回答 */
   try {
@@ -117,7 +177,8 @@ export async function callAI(opts: {
         : (Array.isArray(lastUser.content) ? ((lastUser.content.find((c: any) => c.type === 'text') || {}).text || '') : '')
     }
     q = String(q).replace(/\s+/g, ' ').trim().slice(0, 100)
-    if (q && deepseekApiKey) {
+    /* 只发了图、没写字时不做无意义的联网搜索 */
+    if (q && deepseekApiKey && !/^（见(附件|图片)）$/.test(q)) {
       const results = await deepseekWebSearch(q, deepseekApiKey, signal)
       if (results && results.length) {
         const today = new Date().toLocaleDateString('zh-CN')
@@ -133,7 +194,7 @@ export async function callAI(opts: {
 
   const r = await streamChatOnce({ baseUrl, apiKey, model, messages, onDelta, signal })
   const usage = r.usage || { pt: 0, ct: Math.round((r.content || '').length / 1.5) }
-  return { content: r.content, usage }
+  return { content: r.content, usage, model }
 }
 
 /* ================= 连通测试：依次尝试候选模型，404 才换下一个 ================= */
