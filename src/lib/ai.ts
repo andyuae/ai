@@ -334,9 +334,11 @@ export async function callAI(opts: {
     r = await send()
   } catch (e: any) {
     const aborted = e?.name === 'AbortError'
+    /* 被上游安全策略拦了：换模型重试只会把"拒绝次数"继续累加，直接把原因抛给用户 */
+    if (aborted || isSafetyBlock(shortErr(e))) throw e
     /* 自己看图失败（常见：中转站不给该模型传图、图太大被拒、该模型其实不支持视觉）
        → 自动降级：借别家的眼睛把图片转述成文字，再回答一次，而不是让这一列空着 */
-    if (aborted || !hasImages || bridged || !opts.describeImages) throw e
+    if (!hasImages || bridged || !opts.describeImages) throw e
     const imgs = collectImages(messages)
     let bridge: { text: string; by: string } | null = null
     try { bridge = await opts.describeImages(imgs, replyLang) } catch { bridge = null }
@@ -358,6 +360,16 @@ export async function callAI(opts: {
 function shortErr(e: any): string {
   const m = String((e && e.message) || e || '未知错误').replace(/\s+/g, ' ')
   return m.length > 120 ? m.slice(0, 120) + '…' : m
+}
+
+/**
+ * 是不是被上游"内容安全策略"拦截了。
+ * 这类错误重试没有意义，而且上游会累计"拒绝次数"，反复重试可能延长封禁，
+ * 所以不能走"换个模型再试一次"的兜底，也要在界面上把重试按钮藏掉。
+ */
+export function isSafetyBlock(text: string): boolean {
+  return /(safety[_ ]policy|content[_ ]policy|general_harm|content safety|blocked by upstream|safety_violation|安全策略|安全审核|内容审核|违规内容|excessive content refusals)/i
+    .test(String(text || ''))
 }
 
 /* ================= 连通测试：依次尝试候选模型，404 才换下一个 ================= */

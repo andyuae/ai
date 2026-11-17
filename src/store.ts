@@ -4,7 +4,7 @@ import { sb } from './lib/supabase'
 import { PROVIDERS, KEY_PREFIX_HINT } from './config'
 import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment } from './lib/types'
 import { serializeAtts, parseAtts, processFile, ATT_COUNT_MAX } from './lib/atts'
-import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages } from './lib/ai'
+import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock } from './lib/ai'
 
 type View = 'chat' | 'settings'
 
@@ -543,14 +543,17 @@ async function send() {
         logUsage(p.provider, usedModel, usage)
       } catch (e: any) {
         const aborted = e?.name === 'AbortError' || state.stopFlag
-        const msg = aborted ? '已停止' : (e?.message || String(e))
+        const raw = aborted ? '已停止' : (e?.message || String(e))
+        const msg = (!aborted && isSafetyBlock(raw))
+          ? raw + `\n\n提示：这是 ${providerOf(p.provider)?.name || p.provider} 上游的内容安全策略拦截，与你的密钥和网站代码无关。上游会累计「拒绝次数」，反复重试可能延长临时限制；建议换成同家其他模型，或过几小时再试。`
+          : raw
         col.state = 'error'
         col.error = msg
         if (!aborted) {
           try {
             /* 把真实原因存进去：否则历史里只剩一句"本次调用失败"，事后无法定位 */
-            const id = await saveMessage({ conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 500), status: 'error' })
-            finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 500), tokens: 0, status: 'error' })
+            const id = await saveMessage({ conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 800), status: 'error' })
+            finished.push({ id, conversation_id: state.currentConvId!, sender: 'assistant', provider: p.provider, model: p.model, content: msg.slice(0, 800), tokens: 0, status: 'error' })
           } catch { /* ignore */ }
         }
       }
@@ -573,6 +576,11 @@ async function send() {
 /* ================= 单列重试：某一家失败，不必整条消息重发 ================= */
 async function retryOne(m: DbMessage) {
   if (state.discussing) { ElMessage.warning('请等当前回答结束后再重试'); return }
+  /* 安全策略拦截：重试只会累加"拒绝次数"，挡住，不让人越点越糟 */
+  if (isSafetyBlock(m.content)) {
+    ElMessage.warning('这是上游内容安全策略拦截，原样重试大概率仍会被拒，还可能延长限制。建议换模型或稍后再试')
+    return
+  }
   if (!m.provider || state.currentConvId == null) return
   const prov = providerOf(m.provider)
   if (!prov?.apiKey) { ElMessage.warning('该服务的密钥不可用，请到设置页重新配置'); return }

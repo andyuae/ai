@@ -176,6 +176,7 @@ body {
 /* 失败列的重试按钮：弱化成"可点一下"的辅助操作，不抢复制按钮的注意力 */
 .fast-copy.retry { margin-right: auto; color: #c0392b; border-color: #f0c9c5 }
 .fast-copy.retry:hover { color: #fff; background: #d64541; border-color: #d64541 }
+.retry-hint { margin-right: auto; font-size: 11.5px; color: #b0b7c3 }
 
 /* AI 并排分块：grid-auto-flow:column 强制同一行并排，绝不折行 */
 .fast-grid {

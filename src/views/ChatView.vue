@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Close } from '@element-plus/icons-vue'
 import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
+import { isSafetyBlock } from '../lib/ai'
 import type { DbMessage } from '../lib/types'
 
 const state = store.state
@@ -188,8 +189,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
               </div>
               <div class="fast-foot">
                 <button class="fast-copy" @click="copyAi(m.content, $event)">复制</button>
-                <button v-if="m.status === 'error' && !state.discussing" class="fast-copy retry"
+                <button v-if="m.status === 'error' && !state.discussing && !isSafetyBlock(m.content)" class="fast-copy retry"
                   title="只重试这一家" @click="store.retryOne(m)">重试</button>
+                <span v-else-if="m.status === 'error' && isSafetyBlock(m.content)" class="retry-hint">重试无意义</span>
               </div>
             </div>
           </div>
