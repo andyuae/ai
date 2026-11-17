@@ -198,6 +198,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
             <div class="fast-head">
               <span class="fdot" :style="{ background: dotColor(c.provider) }"></span>
               <span class="fname">{{ provName(c.provider) }}</span>
+              <span v-if="c.note" class="fnote" :title="c.note">{{ c.note }}</span>
               <span class="fm">{{ provLabel(c.provider, c.model) }}</span>
               <button class="zoom-btn" title="放大查看" @click="openZoom({ col: c })">
                 <svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -233,7 +234,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           </button>
           <input ref="fileRef" type="file" multiple style="display:none" @change="onPickFiles">
           <el-input v-model="state.inputText" type="textarea" :rows="2" resize="none"
-            placeholder="输入消息，同时发给所有 AI……（Enter 发送，Shift+Enter 换行；可点 ＋ 附图片/文件）"
+            placeholder="输入消息，同时发给所有 AI……（Enter 发送，Shift+Enter 换行；可点 ＋ 附图片 / Word / Excel / PPT / PDF）"
             @keydown="onInputEnter" @paste="onPaste" />
           <el-button v-if="!state.discussing" type="primary" class="btn-send" @click="store.send()">发 送</el-button>
           <el-button v-else type="danger" class="btn-send" @click="store.stopAnswer()">停 止</el-button>
@@ -247,6 +248,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           <div class="zoom-head">
             <span class="fdot" :style="{ background: dotColor(zoomProvider) }"></span>
             <span class="fname">{{ provName(zoomProvider) }}</span>
+            <span v-if="zoomCol?.note" class="fnote">{{ zoomCol.note }}</span>
             <span class="fm">{{ provLabel(zoomProvider, zoomModel) }}</span>
             <div class="zoom-actions">
               <button class="act-btn" @click="doCopy(zoomText, $event)">复制全文</button>

@@ -119,6 +119,9 @@ export function buildMessages(
   /* 最近 2 条带图的消息保留图片（每条最多 2 张），保证多轮追问可用 */
   const imgMsgs = hist.filter(m => m.sender === 'user' && parseAtts(m.content).atts.some(a => a.kind === 'image'))
   const keepImgs = new Set(imgMsgs.slice(-2))
+  /* 最近 1 条带文件的消息保留正文，保证"表格第三列什么意思"这类追问可用 */
+  const fileMsgs = hist.filter(m => m.sender === 'user' && parseAtts(m.content).atts.some(a => a.kind === 'file'))
+  const keepFile = fileMsgs[fileMsgs.length - 1]
 
   hist.forEach(m => {
     if (m.sender === 'user') {
@@ -126,6 +129,12 @@ export function buildMessages(
       const imgs = atts.filter(a => a.kind === 'image')
       if (keepImgs.has(m) && imgs.length) {
         msgs.push({ role: 'user', content: imageParts(text, imgs, 2) })
+      } else if (m === keepFile) {
+        let body = text || ''
+        atts.filter(a => a.kind === 'file').forEach(f => {
+          body += `\n\n【附件文件：${f.name}】\n${String(f.text || '').slice(0, 20000)}`
+        })
+        msgs.push({ role: 'user', content: body.slice(0, 30000) })
       } else {
         msgs.push({ role: 'user', content: attSummary(m.content) })
       }
@@ -143,28 +152,73 @@ export function buildMessages(
 }
 
 /* ================= 调用一家 AI（始终先联网搜索，再流式回答） ================= */
+/* ================= 借别家的眼睛：把图片转成文字描述 ================= */
+export async function describeImages(opts: {
+  provider: string; model: string; apiKey: string; baseUrl: string
+  images: Attachment[]; signal: AbortSignal
+}): Promise<string> {
+  const prompt = '下面是一张或多张图片。请客观、完整地描述看到的内容：整体是什么（截图 / 照片 / 表格 / 图表 / 聊天记录）、画面中的文字（尽量逐字准确）、关键数字与它们之间的关系。只做描述，不要分析、不要评价、不要使用 Markdown 标题。'
+  const msgs: ChatMsg[] = [{ role: 'user', content: imageParts(prompt, opts.images, 4) }]
+  const r = await streamChatOnce({ baseUrl: opts.baseUrl, apiKey: opts.apiKey, model: opts.model, messages: msgs, signal: opts.signal })
+  return String(r.content || '').trim()
+}
+
+function collectImages(messages: ChatMsg[]): Attachment[] {
+  const out: Attachment[] = []
+  messages.forEach(m => {
+    if (!Array.isArray(m.content)) return
+    m.content.forEach((c: any) => {
+      if (c && c.type === 'image_url' && c.image_url && c.image_url.url) {
+        out.push({ kind: 'image', name: '图片' + (out.length + 1), dataUrl: c.image_url.url })
+      }
+    })
+  })
+  return out
+}
+
+/** 把图片段替换成文字描述，交给不支持视觉的模型（否则它会因为收到图片而报错） */
+function imagesToText(messages: ChatMsg[], desc: string): ChatMsg[] {
+  const block = `\n\n【附图内容（由另一个 AI 转述，请据此回答；如需更精确的细节请直接说明）】\n${desc}`
+  const out = messages.map(m => {
+    if (!Array.isArray(m.content)) return m
+    const text = m.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+    return { ...m, content: text || '（见附图）' }
+  })
+  const i = out.length - 1
+  out[i] = { ...out[i], content: String(out[i].content || '') + block }
+  return out
+}
+
+/* ================= 调用一家 AI（始终先联网搜索，再流式回答） ================= */
 export async function callAI(opts: {
   provider: string; model: string; messages: ChatMsg[]
   apiKey: string; baseUrl: string
   availableModels?: string[]
   deepseekApiKey?: string | null
+  describeImages?: (imgs: Attachment[]) => Promise<{ text: string; by: string }>
   onDelta?: (delta: string, all: string) => void
   signal: AbortSignal
-}): Promise<{ content: string; usage: { pt: number; ct: number }; model: string }> {
+}): Promise<{ content: string; usage: { pt: number; ct: number }; model: string; note: string }> {
   let { provider, model, messages } = opts
   const { apiKey, baseUrl, availableModels, deepseekApiKey, onDelta, signal } = opts
 
-  /* 带图片时确认模型真的能看图；只在"确实需要"且"你确实有权限"时才换模型 */
+  /* 带图片时：能自己看图就用自己；不能看就借别家的眼睛转述成文字，绝不直接甩错误 */
+  let note = ''
   const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'))
   if (hasImages) {
     const vision = pickVisionModel(provider, model, availableModels)
-    if (!vision) {
-      throw new Error(
-        `当前模型 ${model} 不能识别图片，且该服务的可用模型里没有可用的视觉模型。` +
-        `请在设置页点「拉取模型列表」，勾选一个支持图片的模型（名字含 vision / 4o / gemini / claude 等），再重试。`
-      )
+    if (vision) {
+      model = vision
+    } else {
+      const imgs = collectImages(messages)
+      let bridged: { text: string; by: string } | null = null
+      try { bridged = opts.describeImages ? await opts.describeImages(imgs) : null } catch { bridged = null }
+      if (!bridged || !bridged.text) {
+        throw new Error(`当前模型 ${model} 不支持图片识别，也没有其他可用的视觉模型可以代为转述。请在设置页为任意一家勾选支持图片的模型（名字含 vision / 4o / gemini / claude 等）。`)
+      }
+      messages = imagesToText(messages, bridged.text)
+      note = `图片由 ${bridged.by} 转述`
     }
-    model = vision
   }
 
   /* 始终联网：先查实时资料注入系统提示；失败不阻塞回答 */
@@ -194,7 +248,7 @@ export async function callAI(opts: {
 
   const r = await streamChatOnce({ baseUrl, apiKey, model, messages, onDelta, signal })
   const usage = r.usage || { pt: 0, ct: Math.round((r.content || '').length / 1.5) }
-  return { content: r.content, usage, model }
+  return { content: r.content, usage, model, note }
 }
 
 /* ================= 连通测试：依次尝试候选模型，404 才换下一个 ================= */

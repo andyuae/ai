@@ -4,7 +4,7 @@ import { sb } from './lib/supabase'
 import { PROVIDERS, KEY_PREFIX_HINT } from './config'
 import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment } from './lib/types'
 import { serializeAtts, parseAtts, processFile, ATT_COUNT_MAX } from './lib/atts'
-import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels } from './lib/ai'
+import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages } from './lib/ai'
 
 type View = 'chat' | 'settings'
 
@@ -43,6 +43,18 @@ function effBaseUrl(key: string): string {
 }
 function providerOf(key: string): ProviderState | undefined {
   return state.providers.find(p => p.key === key)
+}
+
+/* 找一家"能看图"的 AI：给不支持视觉的模型转述图片内容（DeepSeek 这类纯文本模型靠它） */
+function pickVisionHelper(exclude: string) {
+  for (const key of DISPLAY_ORDER) {
+    if (key === exclude) continue
+    const p = providerOf(key)
+    if (!p || !p.configured || !p.enabled || !p.apiKey) continue
+    const vm = pickVisionModel(key, currentModelSel[key] || p.models[0], p.models)
+    if (vm) return { key, name: p.name, model: vm, baseUrl: effBaseUrl(key), apiKey: p.apiKey }
+  }
+  return null
 }
 
 function dbErr(op: string, error: any): never {
@@ -486,18 +498,29 @@ async function send() {
       const col = state.liveCols[i]
       const prov = providerOf(p.provider)!
       try {
-        const { content, usage, model: usedModel } = await callAI({
+        const { content, usage, model: usedModel, note } = await callAI({
           provider: p.provider, model: p.model,
           messages: buildMessages(p.provider, p.model, historySnapshot, text, atts),
           apiKey: prov.apiKey!, baseUrl: effBaseUrl(p.provider),
           availableModels: prov.models,
           deepseekApiKey: deepseekKey,
+          /* 该服务没有可用的视觉模型时，借别家的眼睛把图片转述成文字 */
+          describeImages: async (imgs) => {
+            const helper = pickVisionHelper(p.provider)
+            if (!helper) return { text: '', by: '' }
+            const desc = await describeImages({
+              provider: helper.key, model: helper.model, apiKey: helper.apiKey,
+              baseUrl: helper.baseUrl, images: imgs, signal: aborters[i].signal
+            })
+            return { text: desc, by: helper.name }
+          },
           onDelta: (_d, all) => { col.text = all },
           signal: aborters[i].signal
         })
         col.text = content
         /* 带图时可能换用视觉模型：表头显示实际用的模型，避免"表头与报错对不上" */
         col.model = usedModel
+        if (note) col.note = note
         col.state = 'done'
         const id = await saveMessage({
           conversation_id: state.currentConvId!, sender: 'assistant',

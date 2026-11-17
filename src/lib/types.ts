@@ -41,6 +41,7 @@ export interface LiveCol {
   text: string
   state: 'running' | 'done' | 'error'
   error?: string
+  note?: string        // 例如"图片由 Gemini 转述"
 }
 
 export interface SettingsData {
