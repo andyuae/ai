@@ -244,7 +244,8 @@ body {
   font-size: 15px; line-height: 1.9; white-space: pre-wrap; word-break: break-word;
 }
 .zoom-tip { flex: none; text-align: center; font-size: 11px; color: #a8b0ba; padding: 8px 0 10px; border-top: 1px solid #f0f2f5 }
-.fast-body { font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; flex: 1 }
+.fast-body { font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; flex: 1;
+  container-type: inline-size }  /* 供表格做「窄容器转卡片」判断 */
 
 /* ===== AI 回答的 Markdown 渲染（表格/标题/列表/代码/链接） ===== */
 .md { white-space: normal; word-break: break-word; line-height: 1.72 }
@@ -261,8 +262,9 @@ body {
 .md li > p { margin: .15em 0 }
 .md strong { font-weight: 650; color: #16202f }
 .md code {
-  background: #f1f4f9; border-radius: 4px; padding: .1em .38em; font-size: .9em;
+  background: #f1f4f9; border-radius: 4px; padding: .06em .3em; font-size: .9em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
 }
 .md pre {
   background: #f6f8fb; border: 1px solid #e7ecf3; border-radius: 8px;
@@ -274,14 +276,41 @@ body {
 .md a { color: var(--el-color-primary); text-decoration: none; word-break: break-all }
 .md a:hover { text-decoration: underline }
 .md img { max-width: 100%; border-radius: 8px }
-/* 窄列里的表格：保持自然列宽，整表横向滚动（压扁会变成"一字一行"） */
-.md-table-wrap { overflow-x: auto; max-width: 100%; margin: .6em 0; -webkit-overflow-scrolling: touch }
-.md table { border-collapse: collapse; font-size: .92em; width: max-content; min-width: 100% }
+/* 宽屏（放大查看）里的表格：正常表格排版 */
+.md-table-wrap { max-width: 100%; margin: .6em 0; overflow-x: auto }
+.md table { border-collapse: collapse; font-size: .92em; width: 100% }
 .md th, .md td {
   border: 1px solid #e3e9f2; padding: 5px 9px; text-align: left; vertical-align: top;
-  white-space: nowrap;
+  white-space: normal; word-break: break-word;
 }
 .md th { background: #f7f9fc; font-weight: 600 }
+
+/* 五列并排时每列只有 300 多像素，真正的表格塞不下（不是被截断就是要左右拖），
+   窄容器里改成「一行一张小卡片」：行首单元格作标题，其余单元格「表头：值」。 */
+@container (max-width: 520px) {
+  .md-table-wrap { overflow: visible }
+  .md table, .md tbody, .md tr, .md td { display: block; width: 100% }
+  .md table { border: none; font-size: 1em }
+  .md thead { display: none }
+  .md tr {
+    border: 1px solid #e3e9f2; border-radius: 8px; background: #fbfcfe;
+    padding: 7px 9px; margin: 7px 0;
+  }
+  /* 标签列固定、值列自动换行并对齐（用 grid，比 inline-block 更整齐） */
+  .md td { border: none; padding: 2px 0; display: grid; grid-template-columns: minmax(4em, 40%) 1fr; gap: 8px; align-items: start }
+  .md td::before {
+    content: attr(data-label); color: #8a94a6; font-weight: 600; font-size: .92em;
+    line-height: 1.7; word-break: break-word;
+  }
+  .md td:not([data-label]) { display: block }
+  .md td:not([data-label])::before { display: none }
+  .md td[data-rowhead] {
+    display: block; padding: 0 0 4px; margin-bottom: 5px;
+    font-weight: 650; color: #1e2736; border-bottom: 1px dashed #e8eef7;
+  }
+  .md td[data-rowhead]::before { display: none }
+  .md td:empty { display: none }
+}
 /* 放大查看里给足排版空间 */
 .zoom-body { white-space: normal }
 .zoom-md { font-size: 15px; line-height: 1.85 }
