@@ -245,6 +245,47 @@ body {
 }
 .zoom-tip { flex: none; text-align: center; font-size: 11px; color: #a8b0ba; padding: 8px 0 10px; border-top: 1px solid #f0f2f5 }
 .fast-body { font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; flex: 1 }
+
+/* ===== AI 回答的 Markdown 渲染（表格/标题/列表/代码/链接） ===== */
+.md { white-space: normal; word-break: break-word; line-height: 1.72 }
+.md > :first-child { margin-top: 0 }
+.md > :last-child { margin-bottom: 0 }
+.md p { margin: .55em 0 }
+.md h1, .md h2, .md h3, .md h4, .md h5 { margin: .9em 0 .45em; font-weight: 650; line-height: 1.4; color: #1e2736 }
+.md h1 { font-size: 1.32em }
+.md h2 { font-size: 1.2em }
+.md h3 { font-size: 1.08em }
+.md h4 { font-size: 1em }
+.md ul, .md ol { margin: .5em 0; padding-left: 1.4em }
+.md li { margin: .22em 0 }
+.md li > p { margin: .15em 0 }
+.md strong { font-weight: 650; color: #16202f }
+.md code {
+  background: #f1f4f9; border-radius: 4px; padding: .1em .38em; font-size: .9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.md pre {
+  background: #f6f8fb; border: 1px solid #e7ecf3; border-radius: 8px;
+  padding: 10px 12px; overflow-x: auto; margin: .6em 0;
+}
+.md pre code { background: none; padding: 0; font-size: .9em; line-height: 1.65 }
+.md blockquote { margin: .6em 0; padding: .25em .8em; border-left: 3px solid #dfe6f0; color: #5b6577; background: #fafbfd }
+.md hr { border: none; border-top: 1px solid #e9eef5; margin: .9em 0 }
+.md a { color: var(--el-color-primary); text-decoration: none; word-break: break-all }
+.md a:hover { text-decoration: underline }
+.md img { max-width: 100%; border-radius: 8px }
+/* 窄列里的表格：保持自然列宽，整表横向滚动（压扁会变成"一字一行"） */
+.md-table-wrap { overflow-x: auto; max-width: 100%; margin: .6em 0; -webkit-overflow-scrolling: touch }
+.md table { border-collapse: collapse; font-size: .92em; width: max-content; min-width: 100% }
+.md th, .md td {
+  border: 1px solid #e3e9f2; padding: 5px 9px; text-align: left; vertical-align: top;
+  white-space: nowrap;
+}
+.md th { background: #f7f9fc; font-weight: 600 }
+/* 放大查看里给足排版空间 */
+.zoom-body { white-space: normal }
+.zoom-md { font-size: 15px; line-height: 1.85 }
+.zoom-md table { font-size: .88em }
 .fast-foot { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 9px; border-top: 1px solid #eef1f6 }
 .typing { display: inline-flex; gap: 4px; padding: 6px 0 }
 .typing i {

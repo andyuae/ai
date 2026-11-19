@@ -4,6 +4,7 @@ import { Close } from '@element-plus/icons-vue'
 import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
 import { isSafetyBlock } from '../lib/ai'
+import { mdToHtml } from '../lib/md'
 import type { DbMessage } from '../lib/types'
 
 const state = store.state
@@ -185,7 +186,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
               <div class="fast-body">
                 <span v-if="state.retryingId === m.id" class="typing"><i></i><i></i><i></i></span>
                 <span v-else-if="m.status === 'error'" class="err">{{ m.content || (provName(m.provider) + ' 本次调用失败') }}</span>
-                <template v-else>{{ m.content }}</template>
+                <div v-else class="md" v-html="mdToHtml(m.content)"></div>
               </div>
               <div class="fast-foot">
                 <button class="fast-copy" @click="copyAi(m.content, $event)">复制</button>
@@ -211,7 +212,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
             </div>
             <div class="fast-body">
               <span v-if="c.state === 'error'" class="err">{{ provName(c.provider) }} 暂时离线：{{ c.error }}</span>
-              <template v-else-if="c.text">{{ c.text }}</template>
+              <div v-else-if="c.text" class="md" v-html="mdToHtml(c.text)"></div>
               <span v-else class="typing"><i></i><i></i><i></i></span>
             </div>
             <div class="fast-foot">
@@ -260,7 +261,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
               <button class="act-btn" @click="closeZoom">关闭</button>
             </div>
           </div>
-          <div class="zoom-body">{{ zoomText || '（暂无内容）' }}</div>
+          <div class="zoom-body">
+            <div v-if="zoomText" class="md zoom-md" v-html="mdToHtml(zoomText)"></div>
+            <span v-else class="muted">（暂无内容）</span>
+          </div>
           <div class="zoom-tip">点击空白处或按 Esc 关闭</div>
         </div>
       </div>
