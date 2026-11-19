@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Close } from '@element-plus/icons-vue'
+import { Close, Setting } from '@element-plus/icons-vue'
 import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
 import { isSafetyBlock } from '../lib/ai'
@@ -125,21 +125,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 
 <template>
   <div class="chat-layout">
-    <!-- 单行工具栏：菜单图标 + 书签式会话栏 -->
+    <!-- 单行工具栏：新建 + 书签式会话栏 + 右侧状态与设置 -->
     <nav class="session-bar">
-      <el-dropdown trigger="click" @command="onMenu">
-        <span class="brand-mark menu-trigger" title="菜单">群<i class="caret"></i></span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="export">导出当前对话</el-dropdown-item>
-            <el-dropdown-item command="delete">删除当前对话</el-dropdown-item>
-            <el-dropdown-item command="settings" divided>设置</el-dropdown-item>
-            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <button class="new-conv" @click="store.newDraft()">＋ 新开对话</button>
+      <button class="new-conv" @click="store.newDraft()"><span class="plus">＋</span>新建</button>
 
       <div class="session-tabs">
         <div v-for="c in state.conversations" :key="c.id"
@@ -150,10 +138,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
           <span class="t-time">{{ c.updated_at ? new Date(c.updated_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '' }}</span>
           <el-icon class="del-x" title="删除此会话" @click.stop="store.deleteConversation(c.id)"><Close /></el-icon>
         </div>
-        <div v-if="!state.conversations.length" class="empty-tip">暂无历史会话，点「＋ 新开对话」开始</div>
+        <div v-if="!state.conversations.length" class="empty-tip">暂无历史会话，点「＋ 新建」开始</div>
       </div>
 
-      <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
+      <div class="bar-right">
+        <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
+        <el-dropdown trigger="click" @command="onMenu">
+          <span class="gear-btn" title="设置">
+            <el-icon :size="17"><Setting /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="settings">设置</el-dropdown-item>
+              <el-dropdown-item command="export" divided>导出当前对话</el-dropdown-item>
+              <el-dropdown-item command="delete">删除当前对话</el-dropdown-item>
+              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
     </nav>
 
     <!-- 消息区 -->
