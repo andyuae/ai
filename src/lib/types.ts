@@ -49,6 +49,33 @@ export interface SettingsData {
   baseUrls?: Record<string, string>
   relayModels?: Record<string, string[]>
   selModels?: Record<string, string[]>   // 每家勾选的模型（第一个为发送时使用的模型）
+  secretary?: SecretaryConf              // 小秘书用哪家的哪个模型做总结
+}
+
+/* ===== 小秘书 · 会议纪要 ===== */
+export interface SecretaryConf { provider: string; model: string }
+
+export interface MinutePoint { point: string; who: string[] }
+export interface MinuteDiffSide { who: string; view: string }
+export interface MinuteDiff { topic: string; sides: MinuteDiffSide[]; note?: string }
+
+/** 一次总结 = 一个选项卡；存在 messages 表里（sender='host'），不额外建表 */
+export interface Minute {
+  id: number
+  n: number
+  title: string
+  overview: string
+  consensus: MinutePoint[]
+  differences: MinuteDiff[]
+  resolved: string[]     // 上次有分歧、这次已收敛
+  blind: string[]        // 没人提到但关键的盲区
+  next: string[]         // 下一步可以直接问的问题
+  raw?: string           // 模型没按 JSON 返回时，原文兜底
+  models: string[]       // 参与这场讨论的 AI 名字
+  secProvider?: string
+  secModel?: string
+  rangeTo?: number       // 总结覆盖到哪条消息
+  created_at?: string
 }
 
 /* 结论卡：把一次多 AI 对比压缩成"我自己的判断"，可搜索、可分享 */

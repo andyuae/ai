@@ -2,9 +2,9 @@ import { reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { sb } from './lib/supabase'
 import { PROVIDERS, KEY_PREFIX_HINT } from './config'
-import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment, Insight, SharedInsight } from './lib/types'
+import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment, Insight, SharedInsight, Minute } from './lib/types'
 import { serializeAtts, parseAtts, processFile, ATT_COUNT_MAX } from './lib/atts'
-import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock, buildInsightMessages, parseInsightJson } from './lib/ai'
+import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock, buildInsightMessages, parseInsightJson, buildMinuteMessages, parseMinuteJson, detectReplyLang } from './lib/ai'
 
 type View = 'chat' | 'settings' | 'insights'
 
@@ -39,6 +39,17 @@ const state = reactive({
     saving: false,
     draft: blankInsight(),
     error: ''
+  },
+  /* 小秘书：会议纪要。每次总结 = 一个选项卡，存 messages 表（sender='host'） */
+  secretary: {
+    open: false,
+    menuOpen: false,
+    busy: false,
+    loading: false,
+    error: '',
+    minutes: [] as Minute[],
+    activeId: 0,
+    convId: null as number | null
   }
 })
 
@@ -358,6 +369,221 @@ async function loadSharedInsight(token: string): Promise<SharedInsight | null> {
   return row || null
 }
 
+/* ================= 小秘书：会议纪要 =================
+   1) 只有点「分析总结」时才调用模型（一次一问，可先设为 DeepSeek 省钱）
+   2) 纪要存在 messages 表里（sender='host'），一篇纪要 = 一个选项卡，
+      不额外建表，换设备/换浏览器也能看到历次总结
+   3) 每次总结都带上一次的纪要，让它标注「哪些分歧这轮已经收敛」 */
+
+let secAbort: AbortController | null = null
+
+function secretaryConf() {
+  const cfg = state.settings.secretary || { provider: '', model: '' }
+  const usable = state.providers.filter(p => p.configured && p.enabled && p.apiKey)
+  const p = usable.find(x => x.key === cfg.provider) || usable.find(x => x.key === 'deepseek') || usable[0]
+  if (!p) return null
+  const model = cfg.model && p.models.includes(cfg.model) ? cfg.model : (currentModelSel[p.key] || p.models[0])
+  return { key: p.key, name: p.name, model, label: (p.modelLabel || {})[model] || model }
+}
+const secretaryModel = computed(() => secretaryConf())
+
+async function saveSecretaryConf(provider: string, model: string) {
+  state.settings.secretary = { provider, model }
+  await persistSettings()
+}
+
+/* 一条 host 消息 → 一份纪要 */
+function parseMinuteRow(row: any): Minute | null {
+  if (!row) return null
+  let obj: any = null
+  try { obj = JSON.parse(row.content) } catch { obj = null }
+  if (obj && obj.v === 1) {
+    return {
+      id: row.id, n: Number(obj.n) || 0,
+      title: obj.title || '本次总结', overview: obj.overview || '',
+      consensus: Array.isArray(obj.consensus) ? obj.consensus : [],
+      differences: Array.isArray(obj.differences) ? obj.differences : [],
+      resolved: Array.isArray(obj.resolved) ? obj.resolved : [],
+      blind: Array.isArray(obj.blind) ? obj.blind : [],
+      next: Array.isArray(obj.next) ? obj.next : [],
+      raw: obj.raw || '',
+      models: Array.isArray(obj.models) ? obj.models : [],
+      secProvider: obj.secProvider, secModel: obj.secModel, rangeTo: obj.rangeTo,
+      created_at: row.created_at
+    }
+  }
+  return {
+    id: row.id, n: 0, title: '早期纪要', overview: '', consensus: [], differences: [],
+    resolved: [], blind: [], next: [], raw: String(row.content || ''),
+    models: [], created_at: row.created_at
+  }
+}
+
+async function loadMinutes() {
+  const s = state.secretary
+  const cid = state.currentConvId
+  if (cid == null) { s.minutes = []; s.activeId = 0; s.convId = null; return }
+  s.loading = true
+  try {
+    const { data, error } = await sb.from('messages')
+      .select('id, content, created_at')
+      .eq('conversation_id', cid).eq('sender', 'host').order('id')
+    if (error) throw new Error(error.message)
+    s.minutes = (data || []).map(parseMinuteRow).filter(Boolean) as Minute[]
+    s.minutes.forEach((m, i) => { if (!m.n) m.n = i + 1 })
+    if (!s.minutes.some(m => m.id === s.activeId)) {
+      s.activeId = s.minutes.length ? s.minutes[s.minutes.length - 1].id : 0
+    }
+    s.convId = cid
+  } catch (e: any) {
+    s.error = '读取历次总结失败：' + (e?.message || e)
+  } finally {
+    s.loading = false
+  }
+}
+
+function toggleSecretaryMenu() {
+  const s = state.secretary
+  s.menuOpen = !s.menuOpen
+  /* 菜单上的「已总结 N 次」要准确：会话换过就顺手取一次（不阻塞菜单展开） */
+  if (s.menuOpen && state.currentConvId != null && s.convId !== state.currentConvId) loadMinutes()
+}
+function closeSecretaryMenu() { state.secretary.menuOpen = false }
+
+async function openSecretary(mode: 'list' | 'summarize' = 'list') {
+  const s = state.secretary
+  s.menuOpen = false
+  s.open = true
+  s.error = ''
+  await loadMinutes()
+  if (mode === 'summarize') await summarizeNow()
+}
+
+function closeSecretary() { state.secretary.open = false }
+function setActiveMinute(id: number) { state.secretary.activeId = id }
+
+/* 切换会话 / 新建时收起面板（正在生成的总结不打断，跑完仍会落库） */
+function resetSecretary() {
+  const s = state.secretary
+  s.open = false; s.menuOpen = false
+  s.minutes = []; s.activeId = 0; s.error = ''; s.convId = null
+}
+
+async function summarizeNow() {
+  const s = state.secretary
+  if (s.busy) return
+  if (state.discussing) { ElMessage.warning('等这一轮回答结束再总结，免得纪要漏掉一半'); return }
+  const convId = state.currentConvId
+  if (convId == null) { ElMessage.warning('当前还没有会话，先向五家提个问题'); return }
+
+  const msgs = state.currentMessages.filter(m => m.sender !== 'host')
+  const okAnswers = msgs.filter(m => m.sender === 'assistant' && m.status !== 'error' && m.content)
+  if (!msgs.some(m => m.sender === 'user')) { ElMessage.warning('当前会话还没有提问，先向五家问点什么'); return }
+  if (!okAnswers.length) { ElMessage.warning('还没有 AI 成功回答，暂时没有可总结的内容'); return }
+
+  const conf = secretaryConf()
+  if (!conf) { s.error = '没有可用的 AI：请先在设置页配置密钥并启用'; return }
+
+  const prev = s.minutes.length ? s.minutes[s.minutes.length - 1] : null
+  const lastUser = [...msgs].reverse().find(m => m.sender === 'user')
+  const lang = detectReplyLang(lastUser ? parseAtts(lastUser.content).text : '')
+
+  s.open = true
+  s.menuOpen = false
+  s.busy = true
+  s.error = ''
+  const ctrl = new AbortController()
+  secAbort = ctrl
+
+  try {
+    const { content, usage, model: usedModel } = await callAI({
+      provider: conf.key, model: conf.model,
+      messages: buildMinuteMessages(msgs, { prev, lang }),
+      apiKey: providerOf(conf.key)!.apiKey!, baseUrl: effBaseUrl(conf.key),
+      signal: ctrl.signal, noSearch: true
+    })
+    const draft = parseMinuteJson(content)
+    const n = s.minutes.length + 1
+    const models = [...new Set(okAnswers.map(m => providerOf(m.provider || '')?.name || m.provider || '').filter(Boolean))] as string[]
+    const payload: any = draft
+      ? { v: 1, n, ...draft, models }
+      : { v: 1, n, title: `第 ${n} 次总结`, overview: '', consensus: [], differences: [], resolved: [], blind: [], next: [], raw: content, models }
+    payload.secProvider = conf.key
+    payload.secModel = usedModel
+
+    const { data, error } = await sb.from('messages').insert({
+      conversation_id: convId, sender: 'host',
+      provider: conf.key, model: usedModel,
+      content: JSON.stringify(payload), tokens: usage.ct, status: 'done'
+    }).select('id, created_at').single()
+    if (error) throw new Error('纪要保存失败：' + error.message)
+
+    logUsage(conf.key, usedModel, usage)
+    if (state.currentConvId === convId) {
+      const m = parseMinuteRow({ id: data.id, content: JSON.stringify(payload), created_at: data.created_at })
+      if (m) { s.minutes.push(m); s.activeId = m.id }
+    }
+    if (!draft) ElMessage.warning('模型没按格式返回，已把原文存进这次纪要')
+  } catch (e: any) {
+    if (e?.name === 'AbortError') ElMessage.info('已停止本次总结')
+    else s.error = '总结失败：' + (e?.message || e)
+  } finally {
+    s.busy = false
+    secAbort = null
+  }
+}
+
+function stopSummarize() {
+  try { secAbort?.abort() } catch { /* ignore */ }
+  secAbort = null
+  state.secretary.busy = false
+}
+
+async function deleteMinute(m: Minute) {
+  const idx = state.secretary.minutes.findIndex(x => x.id === m.id)
+  try {
+    await ElMessageBox.confirm(`删除第 ${m.n || idx + 1} 次总结后无法恢复，确定删除吗？`, '删除这次总结', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+    })
+  } catch { return }
+  const { error } = await sb.from('messages').delete().eq('id', m.id)
+  if (error) { ElMessage.error('删除失败：' + error.message); return }
+  state.secretary.minutes = state.secretary.minutes.filter(x => x.id !== m.id)
+  state.currentMessages = state.currentMessages.filter(x => x.id !== m.id)
+  if (state.secretary.activeId === m.id) {
+    const arr = state.secretary.minutes
+    state.secretary.activeId = arr.length ? arr[arr.length - 1].id : 0
+  }
+}
+
+/* 复制成 Markdown，方便贴到笔记 / 群里 */
+function minuteToText(m: Minute): string {
+  const lines: string[] = [`# 第 ${m.n} 次总结：${m.title}`]
+  if (m.created_at) lines.push(new Date(m.created_at).toLocaleString('zh-CN'))
+  if (m.models.length) lines.push('参与：' + m.models.join('、'))
+  if (m.overview) lines.push('', m.overview)
+  if (m.consensus.length) {
+    lines.push('', '## 已达成的共识')
+    m.consensus.forEach(c => lines.push(`- ${c.point}${c.who?.length ? `（${c.who.join('、')}）` : ''}`))
+  }
+  if (m.differences.length) {
+    lines.push('', '## 分歧')
+    m.differences.forEach(d => {
+      lines.push(`### ${d.topic}`)
+      ;(d.sides || []).forEach(sd => lines.push(`- **${sd.who || '一方'}**：${sd.view}`))
+      if (d.note) lines.push(`> ${d.note}`)
+    })
+  }
+  if (m.resolved?.length) { lines.push('', '## 本轮收敛'); m.resolved.forEach(x => lines.push(`- ${x}`)) }
+  if (m.blind?.length) { lines.push('', '## 盲区'); m.blind.forEach(x => lines.push(`- ${x}`)) }
+  if (m.next?.length) {
+    lines.push('', '## 下一步可以这样问')
+    m.next.forEach((x, i) => lines.push(`${i + 1}. ${x}`))
+  }
+  if (m.raw) lines.push('', m.raw)
+  return lines.join('\n')
+}
+
 /* ================= 登录 / 注册 ================= */
 async function doLogin(email: string, password: string, signup: boolean): Promise<string | null> {
   // 返回 null 表示成功，否则返回错误提示文案
@@ -380,6 +606,7 @@ async function logout() {
   state.currentConvId = null
   state.currentMessages = []
   state.liveCols = []
+  resetSecretary()
 }
 
 async function changePassword(oldPass: string, newPass: string): Promise<string> {
@@ -594,6 +821,7 @@ async function newDraft() {
   state.chatTitle = '新对话'
   state.inputText = ''
   state.attachments = []
+  resetSecretary()
 }
 
 async function openConversation(id: number) {
@@ -603,6 +831,7 @@ async function openConversation(id: number) {
   state.currentConvId = id
   state.currentMessages = data as any
   state.liveCols = []
+  resetSecretary()
   const conv = state.conversations.find(c => c.id === id)
   state.chatTitle = conv ? conv.title : '对话'
 }
@@ -614,7 +843,7 @@ async function deleteConversation(id: number) {
   } catch { return }
   const { error } = await sb.from('conversations').delete().eq('id', id)
   if (error) { ElMessage.error('删除失败：' + error.message); return }
-  if (id === state.currentConvId) { state.currentConvId = null; state.currentMessages = []; state.chatTitle = '新对话' }
+  if (id === state.currentConvId) { state.currentConvId = null; state.currentMessages = []; state.chatTitle = '新对话'; resetSecretary() }
   await loadConversations()
 }
 
@@ -627,8 +856,15 @@ function exportCurrent() {
   if (!state.currentMessages.length) { ElMessage.warning('当前会话还没有内容'); return }
   const lines: string[] = [`# ${state.chatTitle}`, '']
   state.currentMessages.forEach(m => {
-    if (m.sender === 'user') lines.push(`【我】\n${parseAtts(m.content).text}\n`)
-    else lines.push(`【${(PROVIDERS[m.provider || ''] || {}).name || m.provider}】\n${m.content}\n`)
+    if (m.sender === 'host') {
+      /* 小秘书纪要：导出时转成可读文本，不要甩一段 JSON 出去 */
+      const min = parseMinuteRow({ id: m.id, content: m.content, created_at: m.created_at })
+      if (min) lines.push(minuteToText(min) + '\n')
+    } else if (m.sender === 'user') {
+      lines.push(`【我】\n${parseAtts(m.content).text}\n`)
+    } else {
+      lines.push(`【${(PROVIDERS[m.provider || ''] || {}).name || m.provider}】\n${m.content}\n`)
+    }
   })
   const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
   const a = document.createElement('a')
@@ -841,7 +1077,7 @@ function editResend(content: string) {
 const usableProviders = computed(() => state.providers.filter(p => p.configured && p.enabled))
 
 export const store = {
-  state, currentModelSel, usableProviders,
+  state, currentModelSel, usableProviders, secretaryModel,
   effBaseUrl, providerOf,
   enterApp, doLogin, logout, changePassword,
   saveProviderKey, saveBaseUrl, testProvider, fetchModelList, toggleProvider, setSelModels, loadUsage,
@@ -850,6 +1086,8 @@ export const store = {
   send, stopAnswer, retryOne, addFiles, removeAttachment, editResend,
   loadInsights, openInsightEditor, closeInsightEditor, draftInsight, saveInsight, deleteInsight,
   shareInsight, unshareInsight, loadSharedInsight,
+  loadMinutes, toggleSecretaryMenu, closeSecretaryMenu, openSecretary, closeSecretary,
+  setActiveMinute, summarizeNow, stopSummarize, deleteMinute, minuteToText, saveSecretaryConf,
   setView: (v: View) => { state.view = v }
 }
 

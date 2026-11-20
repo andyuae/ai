@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Close, Setting } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { store, orderOf } from '../store'
 import { userBubbleHtml, parseAtts } from '../lib/atts'
 import { isSafetyBlock } from '../lib/ai'
 import { mdToHtml } from '../lib/md'
+import SecretaryDock from '../components/SecretaryDock.vue'
 import type { DbMessage } from '../lib/types'
 
 const state = store.state
@@ -89,15 +89,6 @@ function onMenu(cmd: string) {
   else if (cmd === 'logout') store.logout()
 }
 
-/* 存结论：把当前会话交给结论卡编辑器（AI 提炼要点一下才花） */
-function onSaveInsight() {
-  if (!state.currentMessages.length && !state.liveCols.length) {
-    ElMessage.warning('当前会话还没有内容，先向五家提个问题')
-    return
-  }
-  store.openInsightEditor({ convId: state.currentConvId })
-}
-
 /* 附件 */
 function onPickFiles(e: Event) {
   const input = e.target as HTMLInputElement
@@ -152,13 +143,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="bar-right">
-        <button class="bar-icon" title="结论库：你自己攒下来的判断" @click="store.setView('insights')">
-          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-            <path d="M6 3.8h9.2c1.1 0 2 .9 2 2v14.4l-6.6-3.6-6.6 3.6V5.8c0-1.1.9-2 2-2Z"
-              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <button class="bar-save" title="把这次五家对比存成一张结论卡" @click="onSaveInsight">存结论</button>
         <span v-if="state.discussing" class="live-pill"><i></i>回答中</span>
         <el-dropdown trigger="click" @command="onMenu">
           <span class="gear-btn" title="设置">
@@ -289,5 +273,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
         </div>
       </div>
     </teleport>
+
+    <!-- 小秘书：浮动入口 + 会议纪要（每次总结一个选项卡） -->
+    <SecretaryDock />
   </div>
 </template>

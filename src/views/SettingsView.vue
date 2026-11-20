@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store } from '../store'
 import type { UsageMatrix, UsageCell } from '../store'
@@ -11,6 +11,38 @@ const usage = ref<UsageMatrix | null>(null)
 const usageLoading = ref(true)
 const usageErr = ref('')
 const monthOffset = ref(0)
+
+/* 小秘书用哪家的哪个模型做总结 */
+const secProvider = ref('')
+const secModel = ref('')
+const secUsable = computed(() => state.providers.filter((p: any) => p.configured && p.apiKey))
+const secModels = computed(() => state.providers.find((x: any) => x.key === secProvider.value)?.models || [])
+
+function initSecretary() {
+  const cfg = state.settings.secretary
+  const usable = secUsable.value
+  const key = cfg?.provider && usable.some((p: any) => p.key === cfg.provider)
+    ? cfg.provider
+    : (usable.find((p: any) => p.key === 'deepseek')?.key || usable[0]?.key || '')
+  secProvider.value = key
+  const p = state.providers.find((x: any) => x.key === key)
+  secModel.value = cfg?.model && p?.models.includes(cfg.model) ? cfg.model : (p?.models[0] || '')
+}
+
+async function persistSecretary() {
+  if (!secProvider.value || !secModel.value) return
+  try {
+    await store.saveSecretaryConf(secProvider.value, secModel.value)
+    ElMessage.success('小秘书模型已保存')
+  } catch (e: any) {
+    ElMessage.error('保存失败：' + (e?.message || e))
+  }
+}
+async function onSecProvider(v: string) {
+  const p = state.providers.find((x: any) => x.key === v)
+  secModel.value = p?.models[0] || ''
+  await persistSecretary()
+}
 
 const oldPass = ref('')
 const newPass = ref('')
@@ -42,6 +74,7 @@ function cellText(c?: UsageCell) {
 onMounted(async () => {
   await loadUsageData()
   state.providers.forEach((p: any) => { baseInputs.value[p.key] = store.effBaseUrl(p.key) })
+  initSecretary()
 })
 
 async function saveKey(key: string) {
@@ -121,6 +154,28 @@ async function changePass() {
           </el-checkbox-group>
         </div>
       </div>
+    </div>
+
+    <!-- 小秘书（会议纪要）用哪家的模型 -->
+    <div class="settings-card">
+      <h2>小秘书（会议纪要）</h2>
+      <div class="sub">
+        聊天页右下角的「小秘书」用它来汇总共识、标出分歧。只有你点「分析总结」时才调用一次，平时零成本。
+        建议选便宜、长文能力强的模型（DeepSeek / Gemini Flash）。
+      </div>
+      <div v-if="!secUsable.length" class="muted small">还没有配置任何密钥，先在上方保存至少一家的密钥。</div>
+      <div v-else class="sec-set">
+        <label>服务商</label>
+        <el-select v-model="secProvider" style="width:180px" @change="onSecProvider">
+          <el-option v-for="p in secUsable" :key="p.key" :label="p.name" :value="p.key" />
+        </el-select>
+        <label>模型</label>
+        <el-select v-model="secModel" style="width:300px" @change="persistSecretary">
+          <el-option v-for="m in secModels" :key="m"
+            :label="(store.providerOf(secProvider)?.modelLabel || {})[m] || m" :value="m" />
+        </el-select>
+      </div>
+      <div class="muted small sec-set-hint">纪要按会话保存，随时可在「查看已总结」里切换第 1 次、第 2 次……</div>
     </div>
 
     <!-- 用量 -->

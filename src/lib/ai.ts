@@ -1,4 +1,4 @@
-import type { Attachment, ChatMsg } from './types'
+import type { Attachment, ChatMsg, Minute } from './types'
 import { attSummary, parseAtts } from './atts'
 import { PROVIDERS } from '../config'
 
@@ -284,9 +284,10 @@ export async function callAI(opts: {
   describeImages?: (imgs: Attachment[], lang?: 'zh' | 'en' | '') => Promise<{ text: string; by: string }>
   onDelta?: (delta: string, all: string) => void
   signal: AbortSignal
+  noSearch?: boolean        // 会议纪要这类"内部汇总"不需要联网，省一次搜索费用
 }): Promise<{ content: string; usage: { pt: number; ct: number }; model: string; note: string }> {
   let { provider, model, messages } = opts
-  const { apiKey, baseUrl, availableModels, deepseekApiKey, onDelta, signal } = opts
+  const { apiKey, baseUrl, availableModels, deepseekApiKey, onDelta, signal, noSearch } = opts
 
   /* 带图片时：能自己看图就用自己；不能看就借别家的眼睛转述成文字，绝不直接甩错误 */
   let note = ''
@@ -314,7 +315,7 @@ export async function callAI(opts: {
   try {
     let q = String(lastUserText(messages)).replace(/\s+/g, ' ').trim().slice(0, 100)
     /* 只发了图、没写字时不做无意义的联网搜索 */
-    if (q && deepseekApiKey && !/^（见(附件|图片)）$/.test(q)) {
+    if (!noSearch && q && deepseekApiKey && !/^（见(附件|图片)）$/.test(q)) {
       const results = await deepseekWebSearch(q, deepseekApiKey, signal)
       if (results && results.length) {
         const today = new Date().toLocaleDateString('zh-CN')
@@ -493,5 +494,171 @@ export function parseInsightJson(raw: string): InsightDraft | null {
   const hasAny = d.title || d.conclusion || d.evidence || d.disputes || d.question
   if (!hasAny) return null
   if (!d.title) d.title = d.question ? d.question.slice(0, 18) : '未命名结论'
+  return d
+}
+
+/* ================= 小秘书：会议纪要（共识 / 分歧 / 下一步） ================= */
+
+export type MinuteDraft = Pick<Minute, 'title' | 'overview' | 'consensus' | 'differences' | 'resolved' | 'blind' | 'next'>
+
+/** 一次总结最多把多少字的对话喂给模型（够用又不至于爆 token） */
+const MINUTE_BUDGET = 32000
+
+function clipText(s: string, n: number) {
+  const t = String(s || '').trim()
+  return t.length > n ? t.slice(0, n) + '…（以下略）' : t
+}
+
+function prevMinuteText(m: Minute) {
+  const parts: string[] = [`【上一次纪要（第 ${m.n} 次：${m.title}）】`]
+  if (m.overview) parts.push('进展：' + m.overview)
+  if (m.consensus?.length) parts.push('已达成的共识：\n' + m.consensus.map(c => `- ${c.point}${c.who?.length ? `（${c.who.join('、')}）` : ''}`).join('\n'))
+  if (m.differences?.length) {
+    parts.push('当时的分歧：\n' + m.differences.map(d => {
+      const sides = (d.sides || []).map(sd => `${sd.who} 主张${sd.view}`).join('；')
+      return `- ${d.topic}：${sides}${d.note ? `（${d.note}）` : ''}`
+    }).join('\n'))
+  }
+  return clipText(parts.join('\n'), 2600)
+}
+
+/**
+ * 组"让小秘书总结"的消息：把整场讨论（每轮问题 + 各家回答）按轮次铺开，
+ * 附上上一次纪要，方便它标注哪些分歧这轮已经收敛。超出预算时保留开头与最近几轮。
+ */
+export function buildMinuteMessages(
+  history: { sender: string; provider?: string; status?: string; content: string }[],
+  opts: { prev?: Minute | null; lang?: 'zh' | 'en' | '' } = {}
+): ChatMsg[] {
+  const rounds: { q: string; answers: { name: string; text: string }[] }[] = []
+  history.forEach(m => {
+    if (m.sender === 'user') {
+      rounds.push({ q: attSummary(m.content), answers: [] })
+    } else if (m.sender === 'assistant' && m.status !== 'error' && m.content) {
+      const r = rounds[rounds.length - 1]
+      if (!r) return
+      const name = (PROVIDERS[m.provider || ''] || { name: m.provider || 'AI' }).name
+      r.answers.push({ name, text: m.content.trim() })
+    }
+  })
+
+  const blocks = rounds.map((r, i) => {
+    const head = `【第 ${i + 1} 轮】\n我：${clipText(r.q, 700) || '（见附件 / 图片）'}`
+    const body = r.answers.length
+      ? r.answers.map(a => `${a.name}：${clipText(a.text, 1600)}`).join('\n\n')
+      : '（这一轮没有成功的回答）'
+    return head + '\n\n' + body
+  })
+
+  /* 预算内：全带上；超预算：第一轮 + 最近若干轮，中间注明省略 */
+  let transcript = ''
+  if (blocks.reduce((s, b) => s + b.length, 0) <= MINUTE_BUDGET) {
+    transcript = blocks.join('\n\n')
+  } else {
+    const picked: string[] = []
+    let used = blocks[0] ? blocks[0].length : 0
+    if (blocks[0]) picked.push(blocks[0])
+    let cut = blocks.length
+    for (let i = blocks.length - 1; i >= 1; i--) {
+      if (used + blocks[i].length > MINUTE_BUDGET) { cut = i + 1; break }
+      picked.splice(1, 0, blocks[i])
+      used += blocks[i].length
+      cut = i
+    }
+    const skipped = cut - 1
+    transcript = picked.slice(0, 1).concat(
+      skipped > 0 ? [`（中间 ${skipped} 轮对话较长，已省略）`] : [],
+      picked.slice(1)
+    ).join('\n\n')
+  }
+
+  const lang = opts.lang || 'zh'
+  const prev = opts.prev ? '\n\n' + prevMinuteText(opts.prev) : ''
+
+  const sys = lang === 'en'
+    ? [
+      'You are the meeting secretary of a multi-AI roundtable. Several AI assistants answered the same question independently and cannot see each other. The user now wants minutes that push the discussion forward.',
+      'Rules:',
+      '1. Use only the transcript below. Never invent opinions that no participant expressed, and never add your own new claims.',
+      '2. Consensus = points at least two participants agree on without contradiction. Name them in "who". Merge differently-worded but equivalent points.',
+      '3. Differences = places where participants reach different conclusions, causal explanations, priorities or premises. State exactly what each side claims. Never write vague "both have a point". If the difference is only about conditions, put the conditions in "note".',
+      '4. Only substantive disagreements count; style or verbosity differences do not.',
+      '5. "resolved": disagreements from the previous minutes that are now settled. Empty array if none.',
+      '6. "blind": up to 3 important angles nobody mentioned. Empty array if none.',
+      '7. "next": 3-5 concrete, verifiable questions that move the meeting forward. No generic "let us discuss deeper".',
+      '8. Write everything in English.',
+      '9. Output ONE JSON object only. No Markdown fences, no commentary.',
+      'JSON shape:',
+      '{"title":"8-16 words","overview":"2-3 sentences: where the discussion stands and what is blocking it","consensus":[{"point":"one sentence","who":["ChatGPT","Gemini"]}],"differences":[{"topic":"the disagreement","sides":[{"who":"ChatGPT","view":"claims ..."}],"note":"why they differ, or the conditions under which each holds"}],"resolved":["..."],"blind":["..."],"next":["..."]}'
+    ].join('\n')
+    : [
+      '你是这场「多 AI 圆桌会议」的会议秘书。几位 AI 各自独立回答了用户的同一个问题，彼此看不到对方的回答。用户现在要你把这场讨论整理成一份能直接推动决策的会议纪要。',
+      '要求：',
+      '1. 只依据下面的对话内容，不补充你自己的观点，不编造任何一家没说过的话。',
+      '2. 共识：至少两家说法一致、且互相不冲突的要点。在 who 里写清是哪几家（用对话里出现的名字）。措辞不同但意思相同的，合并成一条，不要重复。',
+      '3. 分歧：对同一问题给出不同结论、不同因果解释、不同优先级或不同前提的地方。sides 里逐方写清「谁主张什么」，不要写成"各有道理"这种和稀泥的话。若只是适用条件不同，把各自成立的条件写进 note。',
+      '4. 只写实质分歧：纯风格差异、一家多说一家少说，不算分歧。',
+      '5. resolved：如果提供了上一次纪要，列出上次存在的分歧中这次已经收敛的；没有就空数组。',
+      '6. blind：没人提到、但对结论有影响的盲区（最多 3 条）；没有就空数组。',
+      '7. next：3-5 个能推动会议继续的问题，要具体、可验证、能落到下一步动作；不要"继续深入讨论"这类空话。',
+      '8. 全部使用中文；如果用户最近一次提问是英文，则全部用英文。',
+      '9. 只输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释文字。',
+      'JSON 结构：',
+      '{"title":"8-16字，概括这次讨论推进到哪","overview":"2-3句话：目前的核心结论、卡在哪里","consensus":[{"point":"一句话","who":["ChatGPT","Gemini"]}],"differences":[{"topic":"分歧点","sides":[{"who":"ChatGPT","view":"主张…"}],"note":"为什么会分歧，或各自成立的条件"}],"resolved":["…"],"blind":["…"],"next":["…"]}'
+    ].join('\n')
+
+  const user = (lang === 'en' ? 'Transcript of the discussion:\n\n' : '本场讨论的完整对话：\n\n')
+    + (transcript || (lang === 'en' ? '(empty)' : '（空）')) + prev
+
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: user }
+  ]
+}
+
+/** 容忍代码块、前后废话、多余逗号；字段缺失时尽量补全而不是整份作废 */
+export function parseMinuteJson(raw: string): MinuteDraft | null {
+  let t = String(raw || '').trim()
+  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  const s = t.indexOf('{')
+  const e = t.lastIndexOf('}')
+  if (s < 0 || e <= s) return null
+  const body = t.slice(s, e + 1).replace(/,\s*([}\]])/g, '$1')
+  let obj: any
+  try { obj = JSON.parse(body) } catch { return null }
+  if (!obj || typeof obj !== 'object') return null
+
+  const str = (v: any) => (typeof v === 'string' ? v.trim() : '')
+  const strArr = (v: any, max = 8) => {
+    const list = Array.isArray(v) ? v : (typeof v === 'string' && v.trim() ? String(v).split(/[，,、]/) : [])
+    return list.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, max)
+  }
+
+  const consensus = (Array.isArray(obj.consensus) ? obj.consensus : [])
+    .map((c: any) => {
+      if (typeof c === 'string') return { point: c.trim(), who: [] }
+      return { point: str(c?.point || c?.text || c?.opinion), who: strArr(c?.who || c?.by || c?.providers, 6) }
+    })
+    .filter((c: any) => c.point)
+
+  const differences = (Array.isArray(obj.differences) ? obj.differences : [])
+    .map((d: any) => {
+      if (typeof d === 'string') return { topic: d.trim(), sides: [], note: '' }
+      const sides = (Array.isArray(d?.sides) ? d.sides : [])
+        .map((sd: any) => typeof sd === 'string'
+          ? { who: '', view: sd.trim() }
+          : { who: str(sd?.who || sd?.name || sd?.provider), view: str(sd?.view || sd?.claim || sd?.says || sd?.opinion) })
+        .filter((sd: any) => sd.view || sd.who)
+      return { topic: str(d?.topic || d?.point || d?.issue), sides, note: str(d?.note || d?.why) }
+    })
+    .filter((d: any) => d.topic)
+
+  const d: MinuteDraft = {
+    title: str(obj.title), overview: str(obj.overview),
+    consensus, differences,
+    resolved: strArr(obj.resolved), blind: strArr(obj.blind, 4), next: strArr(obj.next, 6)
+  }
+  if (!d.title && !d.overview && !consensus.length && !differences.length && !d.next.length) return null
+  if (!d.title) d.title = d.overview ? d.overview.slice(0, 16) : '本次总结'
   return d
 }

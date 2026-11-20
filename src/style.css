@@ -612,3 +612,274 @@ body {
   .share-card { margin: 14px 12px 0; padding: 22px 18px }
   .share-card h1 { font-size: 19px }
 }
+
+/* ===== 小秘书：右下角浮动入口 ===== */
+.sec-dock { position: fixed; right: 22px; bottom: 126px; z-index: 1500 }
+.sec-fab {
+  display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px 0 7px;
+  border: none; border-radius: 999px; cursor: pointer; color: #fff;
+  background: linear-gradient(135deg, #16386b, #2f6bff);
+  box-shadow: 0 10px 26px rgba(22, 56, 107, .34);
+  font-size: 13px; font-weight: 600; letter-spacing: .3px;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.sec-fab:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(22, 56, 107, .42) }
+.sec-fab .ava {
+  width: 32px; height: 32px; border-radius: 50%; flex: none; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .22);
+  font-size: 13.5px; font-weight: 700;
+}
+.sec-fab .badge {
+  position: absolute; top: -4px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: #d4af6a; color: #3a2a0c;
+  font-size: 10px; font-style: normal; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+}
+.sec-fab.busy .ava::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .8); border-top-color: transparent;
+  animation: secSpin 1s linear infinite;
+}
+@keyframes secSpin { to { transform: rotate(360deg) } }
+
+.sec-menu-mask { position: fixed; inset: 0; z-index: 1490 }
+.sec-menu {
+  position: absolute; right: 0; bottom: 58px; width: 282px; padding: 6px;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 18px 46px rgba(11, 31, 58, .24);
+  animation: secPop .16s ease-out;
+}
+@keyframes secPop { from { opacity: 0; transform: translateY(6px) scale(.98) } to { opacity: 1; transform: none } }
+.sec-pop-enter-active, .sec-pop-leave-active { transition: opacity .14s, transform .14s }
+.sec-pop-enter-from, .sec-pop-leave-to { opacity: 0; transform: translateY(6px) scale(.98) }
+.sec-menu-head { display: flex; gap: 8px; align-items: center; padding: 8px 10px 7px }
+.sec-mini-ava {
+  width: 24px; height: 24px; border-radius: 8px; flex: none;
+  background: linear-gradient(135deg, #d4af6a, #f0d39a); color: #3a2a0c;
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.sec-menu-head > div { font-size: 12.5px; font-weight: 650; color: #243043; line-height: 1.4 }
+.sec-menu-head i { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px }
+.sec-mi {
+  display: flex; gap: 9px; align-items: flex-start; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 10px; padding: 8px 10px; cursor: pointer;
+}
+.sec-mi:hover { background: #f2f6ff }
+.sec-mi .ic { width: 18px; flex: none; text-align: center; color: #2f6bff; font-size: 13px; line-height: 1.7 }
+.sec-mi .tx b { display: block; font-size: 13px; font-weight: 600; color: #243043 }
+.sec-mi .tx i { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); margin-top: 2px; line-height: 1.5 }
+
+/* ===== 小秘书：会议纪要面板（每次总结一个选项卡） ===== */
+.sec-mask {
+  position: fixed; inset: 0; z-index: 2100; padding: 22px;
+  background: rgba(8, 20, 40, .55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+}
+.sec-panel {
+  width: min(1080px, 96vw); max-width: 100vw; min-width: 0; height: min(88vh, 880px);
+  background: #fff; border-radius: 18px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .35);
+  animation: secPanelIn .2s ease-out;
+}
+@keyframes secPanelIn { from { opacity: 0; transform: translateY(10px) scale(.99) } to { opacity: 1; transform: none } }
+.sec-panel-head {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: linear-gradient(120deg, #0b1f3a, #16386b 60%, #1d4a8f);
+  color: #fff;
+}
+.sec-brand { display: flex; align-items: center; gap: 10px; min-width: 0 }
+.sec-brand > div { min-width: 0 }
+.sec-avatar {
+  width: 34px; height: 34px; border-radius: 11px; flex: none;
+  background: linear-gradient(135deg, #d4af6a, #f2d9a4); color: #3a2a0c;
+  font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35);
+}
+.sec-brand h2 { font-size: 15px; letter-spacing: .4px }
+.sec-meta { font-size: 11.5px; color: rgba(255, 255, 255, .6); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.sec-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none }
+.sec-btn {
+  height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .12);
+  color: #fff; font-size: 12.5px; font-weight: 600;
+}
+.sec-btn:hover { background: rgba(255, 255, 255, .2) }
+.sec-btn:disabled { opacity: .55; cursor: default }
+.sec-btn.primary { background: #fff; color: #16386b; border-color: #fff }
+.sec-btn.primary:hover { background: #eef3ff }
+.sec-x {
+  width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .1);
+  color: #fff; font-size: 13px; line-height: 1;
+}
+.sec-x:hover { background: rgba(255, 255, 255, .22) }
+
+.sec-tabs {
+  flex: none; display: flex; align-items: flex-end; gap: 4px;
+  padding: 0 14px; background: #eef2f8; border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.sec-tab {
+  margin-top: 7px; padding: 7px 13px 8px; border: 1px solid transparent; border-bottom: none;
+  border-radius: 9px 9px 0 0; background: transparent; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  white-space: nowrap; color: #66717f;
+}
+.sec-tab .tt { font-size: 12.5px; font-weight: 600 }
+.sec-tab i { font-style: normal; font-size: 10px; color: #98a3b1 }
+.sec-tab:hover { background: rgba(255, 255, 255, .65); color: #26303a }
+.sec-tab.on {
+  background: #fff; border-color: var(--line); color: #16386b;
+  position: relative; top: 1px; padding-bottom: 9px;
+  box-shadow: 0 -2px 8px rgba(20, 40, 80, .04);
+}
+.sec-tab.generating { color: #2f6bff; cursor: default }
+.sec-tab.generating i { color: #6b93ff }
+.sec-tab-add {
+  margin: 8px 4px 8px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px dashed #c6d2e2; background: #fff; color: #2f6bff; font-size: 11.5px;
+  white-space: nowrap;
+}
+.sec-tab-add:hover { border-color: #2f6bff; background: #f5f8ff }
+
+.sec-body { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 24px 28px; background: #fbfcfe }
+.min {
+  max-width: 900px; min-width: 0; margin: 0 auto; background: #fff; border: 1px solid var(--line);
+  border-radius: 14px; padding: 20px 24px 22px; box-shadow: 0 4px 18px rgba(20, 40, 80, .05);
+}
+.min-head h3 { font-size: 19px; line-height: 1.5; color: #16202f; letter-spacing: .2px; overflow-wrap: anywhere }
+.min-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; font-size: 11.5px; color: var(--muted) }
+.min-meta span { min-width: 0; overflow-wrap: anywhere }
+.min-overview {
+  margin-top: 13px; padding: 11px 14px; font-size: 14px; line-height: 1.85; color: #39465a;
+  background: #f4f8ff; border-left: 3px solid #2f6bff; border-radius: 0 10px 10px 0;
+  white-space: pre-wrap;
+}
+.min-sec { margin-top: 22px }
+.min-sec h4 { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: #26303a; margin-bottom: 10px }
+.tag { font-size: 10.5px; font-weight: 700; letter-spacing: .6px; padding: 2px 7px; border-radius: 5px; flex: none }
+.tag.green { color: #0f7a4a; background: #e6f7ee }
+.tag.amber { color: #9a6108; background: #fdf1dd }
+.tag.blue { color: #2359c9; background: #e9f0ff }
+.tag.gray { color: #5a6472; background: #eef1f6 }
+.min-consensus { list-style: none; display: flex; flex-direction: column; gap: 8px }
+.min-consensus li {
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px;
+  background: #f8fbf9; border: 1px solid #e2f1e9; border-radius: 10px;
+}
+.min-consensus .idx {
+  width: 18px; height: 18px; margin-top: 2px; flex: none; border-radius: 50%;
+  background: #18a05e; color: #fff; font-size: 10.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.min-consensus p { flex: 1; font-size: 13.5px; line-height: 1.78; color: #26303a; min-width: 0 }
+.min-consensus .who { flex: none; display: flex; max-width: 42%; min-width: 0; margin-top: 2px }
+.min-consensus .who i {
+  font-style: normal; font-size: 10.5px; color: #4f7f66; background: #eaf6ef;
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.min-diff { border: 1px solid #f0e2c4; background: #fffdf8; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px }
+.diff-topic { font-size: 13.5px; font-weight: 650; color: #7a5310; margin-bottom: 9px; line-height: 1.6 }
+.diff-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 8px }
+.diff-side { background: #fff; border: 1px solid #efe2c8; border-radius: 9px; padding: 8px 10px; min-width: 0 }
+.diff-side b { display: block; font-size: 11.5px; color: #9a6108; margin-bottom: 3px }
+.diff-side p { font-size: 13px; line-height: 1.75; color: #3a3428; white-space: pre-wrap }
+.diff-note { margin-top: 9px; font-size: 12px; line-height: 1.75; color: #8a6a2f; white-space: pre-wrap }
+.min-list { list-style: none; display: flex; flex-direction: column; gap: 6px }
+.min-list li { position: relative; padding-left: 15px; font-size: 13px; line-height: 1.8; color: #33404f }
+.min-list li::before { content: ''; position: absolute; left: 3px; top: .78em; width: 5px; height: 5px; border-radius: 50%; background: #9fb0c9 }
+.min-list.blind li::before { background: #b8a06a }
+.min-next { margin-top: 22px; padding: 14px 16px; background: #f4f7ff; border: 1px solid #dce5ff; border-radius: 12px }
+.min-next h4 { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: #26303a; margin-bottom: 4px }
+.ask-btn {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; margin-top: 8px;
+  padding: 9px 12px; text-align: left; cursor: pointer;
+  background: #fff; border: 1px solid #dbe4f7; border-radius: 9px;
+  font-size: 13px; line-height: 1.72; color: #243043;
+  transition: border-color .15s, box-shadow .15s;
+}
+.ask-btn:hover { border-color: #2f6bff; box-shadow: 0 4px 12px rgba(47, 107, 255, .12) }
+.ask-btn .qn {
+  flex: none; width: 17px; height: 17px; margin-top: 1px; border-radius: 5px;
+  background: #eaf0ff; color: #2f6bff; font-size: 10.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.ask-btn .qt { flex: 1; min-width: 0 }
+.ask-btn .qa { flex: none; font-size: 11px; color: #2f6bff; opacity: 0; transition: opacity .15s; margin-top: 2px }
+.ask-btn:hover .qa { opacity: 1 }
+.min-raw { margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--line) }
+
+.sec-wait {
+  height: 100%; min-height: 280px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; color: #5a6472;
+}
+.sec-wait .orb {
+  width: 64px; height: 64px; border-radius: 20px; color: #fff; font-size: 22px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #16386b, #2f6bff);
+  box-shadow: 0 12px 28px rgba(22, 56, 107, .28);
+  animation: secPulse 1.9s ease-in-out infinite;
+}
+@keyframes secPulse { 0%, 100% { transform: translateY(0) scale(1) } 50% { transform: translateY(-4px) scale(1.04) } }
+.sec-wait .stage { font-size: 14px; font-weight: 600; color: #26303a }
+.sec-wait .elapsed { font-size: 11.5px; color: #9aa4b1 }
+.sec-wait .hint { font-size: 11px; color: #a8b2c0 }
+.sec-empty {
+  min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 40px 20px; color: var(--muted);
+}
+.sec-empty .se-emoji { font-size: 34px; color: #c3cddb; margin-bottom: 10px }
+.sec-empty h3 { font-size: 15px; color: #2b3644; margin-bottom: 8px }
+.sec-empty p { font-size: 12.5px; line-height: 1.95; margin-bottom: 16px }
+.sec-empty .sec-btn.primary,
+.sec-error .sec-btn.primary {
+  height: 34px; background: #2f6bff; color: #fff; border-color: #2f6bff; border-radius: 9px;
+}
+.sec-empty .sec-btn.primary:hover,
+.sec-error .sec-btn.primary:hover { background: #1e4fd0 }
+.sec-error { max-width: 640px; margin: 40px auto; padding: 18px 20px; border: 1px solid #f3d3cf; background: #fff8f7; border-radius: 12px }
+.sec-error .se-title { font-size: 14px; font-weight: 650; color: #b03a33; margin-bottom: 8px }
+.sec-error p { font-size: 12.5px; line-height: 1.8; color: #7a4a46; white-space: pre-wrap; margin-bottom: 14px }
+
+.sec-panel-foot {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-top: 1px solid var(--line); background: #fafbfd;
+  font-size: 11.5px; color: var(--muted);
+}
+.sec-panel-foot .grow { flex: 1 }
+.sec-foot-btn {
+  padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px;
+  background: #fff; color: #3a4654; font-size: 12px; cursor: pointer;
+}
+.sec-foot-btn:hover { border-color: #b9c6da; color: #16386b }
+.sec-foot-btn.danger:hover { border-color: #f0c6c2; color: #d64541; background: #fdf3f2 }
+
+/* 设置页：小秘书模型选择 */
+.sec-set { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.sec-set label { font-size: 12.5px; color: #606266 }
+.sec-set-hint { margin-top: 10px }
+
+@media (max-width: 640px) {
+  .messages { padding-bottom: 100px }
+  .sec-dock { right: 12px; bottom: 136px }
+  .sec-fab { height: 42px; padding: 0 12px 0 5px; font-size: 11.5px; gap: 6px }
+  .sec-fab .ava { width: 28px; height: 28px; font-size: 12px }
+  .sec-menu { width: 250px }
+  .sec-mask { padding: 0 }
+  .sec-panel { width: 100vw; max-width: 100vw; height: 100vh; border-radius: 0 }
+  .sec-panel-head { padding: 10px 12px }
+  .sec-meta { max-width: 44vw }
+  .sec-tabs { padding: 0 8px }
+  .sec-tab { padding: 6px 10px 7px }
+  .sec-body { padding: 14px 12px 20px }
+  .min { padding: 15px 14px 18px; border-radius: 12px }
+  .min-head h3 { font-size: 17px }
+  .min-consensus li { flex-wrap: wrap }
+  .min-consensus .who { flex: 0 0 100%; max-width: calc(100% - 28px); margin: 4px 0 0 28px }
+  .min-consensus .who i { white-space: normal; text-align: left }
+}
