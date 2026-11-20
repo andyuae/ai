@@ -674,7 +674,8 @@ body {
 
 /* ===== 小秘书：会议纪要面板（每次总结一个选项卡） ===== */
 .sec-mask {
-  position: fixed; inset: 0; z-index: 2100; padding: 22px;
+  /* 1900：低于 Element Plus 弹窗（2000+），否则删除确认框会被面板盖住 */
+  position: fixed; inset: 0; z-index: 1900; padding: 22px;
   background: rgba(8, 20, 40, .55); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center;
 }
