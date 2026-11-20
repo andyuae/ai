@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store } from '../store'
 import { mdToHtml } from '../lib/md'
+import SecretaryMascot from './SecretaryMascot.vue'
 import type { Minute } from '../lib/types'
 
 const s = store.state.secretary
@@ -54,15 +55,55 @@ async function onSummarize() {
     ElMessage.warning('当前会话还没有内容，先向五家提个问题')
     return
   }
+  hoverOpen.value = false
   await store.openSecretary('summarize')
 }
 
-function onView() { store.openSecretary('list') }
+function onView() {
+  hoverOpen.value = false
+  store.openSecretary('list')
+}
 
 function onSettings() {
+  hoverOpen.value = false
   store.closeSecretaryMenu()
   store.closeSecretary()
   store.setView('settings')
+}
+
+/* ===== 悬停即展开：移上去 130ms 打开，移开 240ms 收起（给手指/鼠标留缓冲，不闪） ===== */
+const hoverOpen = ref(false)
+let hoverIn: any = null
+let hoverOut: any = null
+const menuVisible = computed(() => hoverOpen.value || s.menuOpen)
+
+function prefetchMinutes() {
+  if (state.currentConvId != null && s.convId !== state.currentConvId) store.loadMinutes()
+}
+function onEnter() {
+  clearTimeout(hoverOut)
+  clearTimeout(hoverIn)
+  if (menuVisible.value) return
+  hoverIn = setTimeout(() => { hoverOpen.value = true; prefetchMinutes() }, 130)
+}
+function onLeave() {
+  clearTimeout(hoverIn)
+  clearTimeout(hoverOut)
+  hoverOut = setTimeout(() => { hoverOpen.value = false }, 240)
+}
+function closeMenu() {
+  clearTimeout(hoverIn)
+  clearTimeout(hoverOut)
+  hoverOpen.value = false
+  store.closeSecretaryMenu()
+}
+/* 点一下 = 钉住菜单（触屏没悬停，靠点击）；再点收起 */
+function onFabClick() {
+  clearTimeout(hoverIn)
+  clearTimeout(hoverOut)
+  if (s.menuOpen) { closeMenu(); return }
+  if (!hoverOpen.value) hoverOpen.value = true
+  store.toggleSecretaryMenu()
 }
 
 /* 把建议的问题直接放进输入框：关掉纪要，接着开会 */
@@ -88,7 +129,7 @@ async function copyActive() {
 function onKey(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
   if (s.open) store.closeSecretary()
-  else if (s.menuOpen) store.closeSecretaryMenu()
+  else if (menuVisible.value) closeMenu()
 }
 
 onMounted(() => {
@@ -98,21 +139,25 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   clearInterval(timer)
+  clearTimeout(hoverIn)
+  clearTimeout(hoverOut)
 })
 
 /* 切换会话后重新取该会话的历次总结（角标数量才准确） */
 watch(() => state.currentConvId, (id) => { if (id != null) store.loadMinutes() })
+/* 打开大面板时收起悬停菜单，免得关掉面板后菜单凭空出现 */
+watch(() => s.open, (v) => { if (v) hoverOpen.value = false })
 </script>
 
 <template>
   <teleport to="body">
-    <div v-if="s.menuOpen" class="sec-menu-mask" @click="store.closeSecretaryMenu()"></div>
+    <div v-if="s.menuOpen" class="sec-menu-mask" @click="closeMenu()"></div>
 
-    <div v-if="!s.open" class="sec-dock">
+    <div v-if="!s.open" class="sec-dock" @mouseenter="onEnter" @mouseleave="onLeave">
       <transition name="sec-pop">
-        <div v-if="s.menuOpen" class="sec-menu">
+        <div v-if="menuVisible" class="sec-menu">
           <div class="sec-menu-head">
-            <span class="sec-mini-ava">秘</span>
+            <SecretaryMascot :size="26" />
             <div>小秘书<i>会议纪要 · 只在你点击时调用</i></div>
           </div>
 
@@ -131,14 +176,13 @@ watch(() => state.currentConvId, (id) => { if (id != null) store.loadMinutes() }
         </div>
       </transition>
 
-      <button class="sec-fab" :class="{ busy: s.busy, open: s.menuOpen }"
-        :title="s.busy ? '小秘书正在整理纪要…' : '小秘书：汇总共识与分歧'"
-        @click="store.toggleSecretaryMenu()">
-        <span class="ava">
-          秘
-          <em v-if="s.minutes.length" class="badge">{{ s.minutes.length }}</em>
-        </span>
-        <span class="lbl">{{ s.busy ? '整理中' : '小秘书' }}</span>
+      <button class="sec-fab" :class="{ busy: s.busy, open: menuVisible }"
+        :aria-label="s.busy ? '小秘书正在整理纪要' : '小秘书：汇总共识与分歧'"
+        :title="s.busy ? '小秘书正在整理纪要…' : '小秘书 · 把讨论汇总成共识与分歧'"
+        @click="onFabClick">
+        <SecretaryMascot :size="46" />
+        <em v-if="s.minutes.length" class="badge">{{ s.minutes.length > 9 ? '9+' : s.minutes.length }}</em>
+        <em v-if="s.busy" class="ring"></em>
       </button>
     </div>
 
@@ -146,7 +190,7 @@ watch(() => state.currentConvId, (id) => { if (id != null) store.loadMinutes() }
       <div class="sec-panel">
         <header class="sec-panel-head">
           <div class="sec-brand">
-            <span class="sec-avatar">秘</span>
+            <span class="sec-avatar"><SecretaryMascot :size="34" /></span>
             <div>
               <h2>会议纪要</h2>
               <div class="sec-meta">{{ headMeta }}</div>
@@ -182,7 +226,7 @@ watch(() => state.currentConvId, (id) => { if (id != null) store.loadMinutes() }
           </div>
 
           <div v-else-if="s.busy" class="sec-wait">
-            <div class="orb">秘</div>
+            <div class="orb"><SecretaryMascot :size="66" /></div>
             <div class="stage">{{ stage }}</div>
             <div class="elapsed">{{ elapsed }} 秒 · 正在通读整场讨论</div>
             <div class="hint">{{ modelLabel }}</div>
@@ -193,7 +237,7 @@ watch(() => state.currentConvId, (id) => { if (id != null) store.loadMinutes() }
           </div>
 
           <div v-else-if="!active" class="sec-empty">
-            <div class="se-emoji">◍</div>
+            <div class="se-emoji"><SecretaryMascot :size="60" /></div>
             <h3>还没有总结过</h3>
             <p>你们聊到一定程度后，点「总结现在」，<br>它会把这整场讨论汇总成：已达成的共识 · 还有哪些分歧 · 下一步该问什么。</p>
             <button class="sec-btn primary" @click="onSummarize">总结现在</button>

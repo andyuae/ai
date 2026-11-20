@@ -613,54 +613,64 @@ body {
   .share-card h1 { font-size: 19px }
 }
 
-/* ===== 小秘书：右下角浮动入口 ===== */
-.sec-dock { position: fixed; right: 22px; bottom: 126px; z-index: 1500 }
-.sec-fab {
-  display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px 0 7px;
-  border: none; border-radius: 999px; cursor: pointer; color: #fff;
-  background: linear-gradient(135deg, #16386b, #2f6bff);
-  box-shadow: 0 10px 26px rgba(22, 56, 107, .34);
-  font-size: 13px; font-weight: 600; letter-spacing: .3px;
-  transition: transform .18s ease, box-shadow .18s ease;
+/* ===== 小秘书：右侧靠下的公仔入口（鼠标悬停自动展开） ===== */
+.sec-dock {
+  position: fixed; right: 16px; bottom: 104px; z-index: 1500;
+  width: 46px; height: 46px;
 }
-.sec-fab:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(22, 56, 107, .42) }
-.sec-fab .ava {
-  width: 32px; height: 32px; border-radius: 50%; flex: none; position: relative;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, .16);
-  border: 1px solid rgba(255, 255, 255, .22);
-  font-size: 13.5px; font-weight: 700;
+/* 公仔与菜单之间的空隙也算「悬停范围内」，指针往菜单移时不会闪断 */
+.sec-dock::after {
+  content: ''; position: absolute; right: 0; bottom: 32px; width: 66px; height: 40px;
+}
+.sec-fab {
+  position: relative; width: 46px; height: 46px; padding: 0; display: block;
+  border: none; border-radius: 50%; background: none; cursor: pointer;
+  filter: drop-shadow(0 5px 12px rgba(22, 56, 107, .24));
+  transition: transform .2s cubic-bezier(.34, 1.3, .64, 1), filter .2s ease;
+}
+.sec-fab:hover, .sec-fab.open {
+  transform: translateY(-2px) scale(1.07);
+  filter: drop-shadow(0 9px 18px rgba(22, 56, 107, .3));
+}
+.sec-fab:active { transform: translateY(0) scale(.97) }
+.sec-fab .mascot { border-radius: 50%; background: #fff; animation: secBreathe 5.6s ease-in-out infinite }
+/* 极轻微的呼吸感，让它像个活的小公仔 */
+@keyframes secBreathe { 0%, 100% { transform: scale(1) } 50% { transform: scale(1.035) } }
+@media (prefers-reduced-motion: reduce) {
+  .sec-fab .mascot { animation: none }
 }
 .sec-fab .badge {
-  position: absolute; top: -4px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+  position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px;
   border-radius: 8px; background: #d4af6a; color: #3a2a0c;
   font-size: 10px; font-style: normal; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
 }
-.sec-fab.busy .ava::after {
-  content: ''; position: absolute; inset: -4px; border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, .8); border-top-color: transparent;
-  animation: secSpin 1s linear infinite;
+.sec-fab .ring {
+  position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+  border: 2px solid rgba(47, 107, 255, .5); border-top-color: transparent;
+  animation: secSpin 1.1s linear infinite;
 }
 @keyframes secSpin { to { transform: rotate(360deg) } }
 
 .sec-menu-mask { position: fixed; inset: 0; z-index: 1490 }
 .sec-menu {
-  position: absolute; right: 0; bottom: 58px; width: 282px; padding: 6px;
+  position: absolute; right: -2px; bottom: 56px; width: 276px; padding: 6px;
   background: #fff; border: 1px solid var(--line); border-radius: 14px;
   box-shadow: 0 18px 46px rgba(11, 31, 58, .24);
   animation: secPop .16s ease-out;
+}
+/* 指向公仔的小尖角 */
+.sec-menu::after {
+  content: ''; position: absolute; right: 19px; bottom: -6px; width: 11px; height: 11px;
+  background: #fff; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  transform: rotate(45deg); border-radius: 0 0 3px 0;
 }
 @keyframes secPop { from { opacity: 0; transform: translateY(6px) scale(.98) } to { opacity: 1; transform: none } }
 .sec-pop-enter-active, .sec-pop-leave-active { transition: opacity .14s, transform .14s }
 .sec-pop-enter-from, .sec-pop-leave-to { opacity: 0; transform: translateY(6px) scale(.98) }
 .sec-menu-head { display: flex; gap: 8px; align-items: center; padding: 8px 10px 7px }
-.sec-mini-ava {
-  width: 24px; height: 24px; border-radius: 8px; flex: none;
-  background: linear-gradient(135deg, #d4af6a, #f0d39a); color: #3a2a0c;
-  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
-}
+.sec-menu-head .mascot { flex: none; border-radius: 50% }
 .sec-menu-head > div { font-size: 12.5px; font-weight: 650; color: #243043; line-height: 1.4 }
 .sec-menu-head i { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px }
 .sec-mi {
@@ -695,11 +705,10 @@ body {
 .sec-brand { display: flex; align-items: center; gap: 10px; min-width: 0 }
 .sec-brand > div { min-width: 0 }
 .sec-avatar {
-  width: 34px; height: 34px; border-radius: 11px; flex: none;
-  background: linear-gradient(135deg, #d4af6a, #f2d9a4); color: #3a2a0c;
-  font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35);
+  width: 34px; height: 34px; border-radius: 50%; flex: none; display: block;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .22);
 }
+.sec-avatar .mascot { border-radius: 50%; background: #fff }
 .sec-brand h2 { font-size: 15px; letter-spacing: .4px }
 .sec-meta { font-size: 11.5px; color: rgba(255, 255, 255, .6); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .sec-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none }
@@ -820,12 +829,11 @@ body {
   align-items: center; justify-content: center; gap: 12px; color: #5a6472;
 }
 .sec-wait .orb {
-  width: 64px; height: 64px; border-radius: 20px; color: #fff; font-size: 22px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #16386b, #2f6bff);
-  box-shadow: 0 12px 28px rgba(22, 56, 107, .28);
+  filter: drop-shadow(0 12px 24px rgba(22, 56, 107, .22));
   animation: secPulse 1.9s ease-in-out infinite;
 }
+.sec-wait .orb .mascot { border-radius: 50%; background: #fff }
 @keyframes secPulse { 0%, 100% { transform: translateY(0) scale(1) } 50% { transform: translateY(-4px) scale(1.04) } }
 .sec-wait .stage { font-size: 14px; font-weight: 600; color: #26303a }
 .sec-wait .elapsed { font-size: 11.5px; color: #9aa4b1 }
@@ -834,7 +842,8 @@ body {
   min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 40px 20px; color: var(--muted);
 }
-.sec-empty .se-emoji { font-size: 34px; color: #c3cddb; margin-bottom: 10px }
+.sec-empty .se-emoji { margin-bottom: 12px; opacity: .95 }
+.sec-empty .se-emoji .mascot { border-radius: 50%; background: #fff }
 .sec-empty h3 { font-size: 15px; color: #2b3644; margin-bottom: 8px }
 .sec-empty p { font-size: 12.5px; line-height: 1.95; margin-bottom: 16px }
 .sec-empty .sec-btn.primary,
@@ -867,9 +876,8 @@ body {
 
 @media (max-width: 640px) {
   .messages { padding-bottom: 100px }
-  .sec-dock { right: 12px; bottom: 136px }
-  .sec-fab { height: 42px; padding: 0 12px 0 5px; font-size: 11.5px; gap: 6px }
-  .sec-fab .ava { width: 28px; height: 28px; font-size: 12px }
+  .sec-dock { right: 10px; bottom: 112px; width: 42px; height: 42px }
+  .sec-fab { width: 42px; height: 42px }
   .sec-menu { width: 250px }
   .sec-mask { padding: 0 }
   .sec-panel { width: 100vw; max-width: 100vw; height: 100vh; border-radius: 0 }
