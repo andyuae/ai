@@ -50,3 +50,26 @@ export interface SettingsData {
   relayModels?: Record<string, string[]>
   selModels?: Record<string, string[]>   // 每家勾选的模型（第一个为发送时使用的模型）
 }
+
+/* 结论卡：把一次多 AI 对比压缩成"我自己的判断"，可搜索、可分享 */
+export interface Insight {
+  id?: number
+  conversation_id?: number | null
+  title: string
+  question: string
+  conclusion: string      // 我的判断
+  evidence: string        // 多家一致的依据
+  disputes: string        // 分歧点
+  counter: string         // 反例 / 风险
+  followup: string        // 待验证
+  sources: string[]       // 最终采信了哪几家
+  tags: string[]
+  share_token?: string | null
+  shared_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+/* 分享页读到的只读结论（无 id / 无 user_id） */
+export type SharedInsight = Omit<Insight, 'id' | 'conversation_id' | 'share_token' | 'created_at' | 'updated_at'>
+

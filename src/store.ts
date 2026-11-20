@@ -2,11 +2,11 @@ import { reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { sb } from './lib/supabase'
 import { PROVIDERS, KEY_PREFIX_HINT } from './config'
-import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment } from './lib/types'
+import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment, Insight, SharedInsight } from './lib/types'
 import { serializeAtts, parseAtts, processFile, ATT_COUNT_MAX } from './lib/atts'
-import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock } from './lib/ai'
+import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock, buildInsightMessages, parseInsightJson } from './lib/ai'
 
-type View = 'chat' | 'settings'
+type View = 'chat' | 'settings' | 'insights'
 
 const state = reactive({
   view: 'chat' as View,
@@ -27,7 +27,19 @@ const state = reactive({
   testAllBusy: false,                          // 一键测试全部进行中
   modelBusy: {} as Record<string, boolean>,
   retryingId: 0,                               // 正在重试的那条失败消息 id
-  chatTitle: '新对话'
+  chatTitle: '新对话',
+  insights: [] as Insight[],                   // 结论卡列表
+  insightsLoaded: false,
+  insightsBusy: false,
+  insightQ: '',                                // 结论库搜索词
+  insightTag: '',                              // 结论库标签筛选
+  insightEditor: {                             // 结论卡编辑器（全局抽屉）
+    open: false,
+    busy: false,                               // AI 提炼中
+    saving: false,
+    draft: blankInsight(),
+    error: ''
+  }
 })
 
 const currentModelSel = reactive<Record<string, string>>({})
@@ -164,6 +176,186 @@ async function enterApp(u: any) {
   await loadSettings()
   await Promise.all([loadConfigs(), loadConversations()])
   state.view = 'chat'
+}
+
+
+/* ================= 结论卡：把一次多 AI 对比压缩成"我自己的判断" ================= */
+
+function blankInsight(): Insight {
+  return {
+    title: '', question: '', conclusion: '', evidence: '', disputes: '',
+    counter: '', followup: '', sources: [], tags: [], conversation_id: null
+  }
+}
+
+function isMissingTable(error: any) {
+  const m = String(error?.message || error || '')
+  return /42P01|does not exist|Could not find the table|schema cache/i.test(m)
+}
+
+async function loadInsights() {
+  state.insightsBusy = true
+  try {
+    const { data, error } = await sb.from('insights').select('*').order('created_at', { ascending: false })
+    if (error) {
+      if (isMissingTable(error)) throw new Error('结论表还没建：请在 Supabase SQL Editor 里执行仓库根目录的 insights-schema.sql，然后刷新页面')
+      dbErr('读取结论库', error)
+    }
+    state.insights = (data || []) as any
+    state.insightsLoaded = true
+  } finally {
+    state.insightsBusy = false
+  }
+}
+
+function openInsightEditor(opts?: { insight?: Insight; convId?: number | null }) {
+  const e = state.insightEditor
+  e.error = ''
+  e.busy = false
+  e.saving = false
+  e.draft = opts?.insight
+    ? { ...opts.insight, sources: [...(opts.insight.sources || [])], tags: [...(opts.insight.tags || [])] }
+    : blankInsight()
+  if (!opts?.insight) e.draft.conversation_id = opts?.convId ?? state.currentConvId ?? null
+  e.open = true
+}
+
+function closeInsightEditor() {
+  state.insightEditor.open = false
+  state.insightEditor.busy = false
+  state.insightEditor.error = ''
+}
+
+/* 用一家最便宜的可用模型把当前会话提炼成结论卡 —— 只有点按钮才调用 */
+async function draftInsight(): Promise<string> {
+  const e = state.insightEditor
+  const usable = state.providers.filter(p => p.configured && p.enabled && p.apiKey)
+  if (!usable.length) return '没有可用的 AI：请先在设置页配置密钥'
+
+  const msgs = state.currentMessages
+  const users = msgs.filter(m => m.sender === 'user')
+  const lastUser = users.length ? users[users.length - 1] : null
+  const question = lastUser ? (parseAtts(lastUser.content).text || '').trim() : ''
+  const afterId = lastUser ? lastUser.id : 0
+
+  let answers = msgs
+    .filter(m => m.sender === 'assistant' && m.id > afterId && m.status !== 'error' && m.content)
+    .map(m => ({ provider: m.provider || '', name: providerOf(m.provider || '')?.name || m.provider || '', content: m.content }))
+
+  /* 回答还在流式输出、尚未落库时，用实时列兜底 */
+  if (!answers.length && state.liveCols.length) {
+    answers = state.liveCols
+      .filter(c => c.text && c.state !== 'error')
+      .map(c => ({ provider: c.provider, name: providerOf(c.provider)?.name || c.provider, content: c.text }))
+  }
+  if (!answers.length) return '当前会话还没有 AI 回答，先在聊天里提个问题再提炼'
+
+  /* 提炼优先用 DeepSeek（最便宜），没有就用第一家可用的 */
+  const pick = usable.find(p => p.key === 'deepseek') || usable[0]
+  const model = currentModelSel[pick.key] || pick.models[0]
+  e.busy = true
+  e.error = ''
+  try {
+    const { content, usage } = await callAI({
+      provider: pick.key, model,
+      messages: buildInsightMessages(question, answers),
+      apiKey: pick.apiKey!, baseUrl: effBaseUrl(pick.key),
+      signal: new AbortController().signal
+    })
+    const d = parseInsightJson(content)
+    if (!d) return '模型没有按格式返回（可能被截断），再点一次或手动填写'
+    e.draft = { ...e.draft, ...d }
+    logUsage(pick.key, model, usage)
+    return ''
+  } catch (err: any) {
+    return '提炼失败：' + (err?.message || err)
+  } finally {
+    e.busy = false
+  }
+}
+
+/* 保存（新建或更新），返回错误文案，空字符串表示成功 */
+async function saveInsight(): Promise<string> {
+  const e = state.insightEditor
+  const d = e.draft
+  if (!d.conclusion.trim() && !d.evidence.trim()) return '至少写一句「我的判断」，否则以后翻出来也看不懂'
+  const payload: any = {
+    title: (d.title || '').trim() || d.conclusion.trim().slice(0, 18) || '未命名结论',
+    question: d.question || '', conclusion: d.conclusion || '', evidence: d.evidence || '',
+    disputes: d.disputes || '', counter: d.counter || '', followup: d.followup || '',
+    sources: d.sources || [], tags: d.tags || [],
+    conversation_id: d.conversation_id ?? null,
+    updated_at: new Date().toISOString()
+  }
+  e.saving = true
+  try {
+    if (d.id) {
+      const { error } = await sb.from('insights').update(payload).eq('id', d.id)
+      if (error) return '保存失败：' + (isMissingTable(error) ? '结论表还没建，请先执行 insights-schema.sql' : error.message)
+    } else {
+      const { error } = await sb.from('insights').insert({ ...payload, user_id: state.user?.id })
+      if (error) return '保存失败：' + (isMissingTable(error) ? '结论表还没建，请先执行 insights-schema.sql' : error.message)
+    }
+    closeInsightEditor()
+    await loadInsights()
+    return ''
+  } finally {
+    e.saving = false
+  }
+}
+
+async function deleteInsight(item: Insight) {
+  if (item.id == null) return
+  try {
+    await ElMessageBox.confirm('删除后无法恢复，确定删除这张结论卡吗？', '删除结论卡', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+    })
+  } catch { return }
+  const { error } = await sb.from('insights').delete().eq('id', item.id)
+  if (error) { ElMessage.error('删除失败：' + error.message); return }
+  state.insights = state.insights.filter(x => x.id !== item.id)
+}
+
+function makeShareToken() {
+  const buf = new Uint8Array(9)
+  crypto.getRandomValues(buf)
+  return Array.from(buf).map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 14)
+}
+
+/* 生成/复用分享链接：只读页面免登录，按 token 取单条 */
+async function shareInsight(item: Insight): Promise<string> {
+  if (item.id == null) return ''
+  let token = item.share_token || ''
+  if (!token) {
+    token = makeShareToken()
+    const { error } = await sb.from('insights')
+      .update({ share_token: token, shared_at: new Date().toISOString() })
+      .eq('id', item.id)
+    if (error) { ElMessage.error('生成分享链接失败：' + error.message); return '' }
+    item.share_token = token
+    item.shared_at = new Date().toISOString()
+  }
+    /* 不依赖构建期常量：从当前地址推导站点根（/ai/），本地与线上都能用 */
+  const base = location.pathname.replace(/[^/]*$/, '') || '/'
+  return `${location.origin}${base}?s=${token}`
+}
+
+async function unshareInsight(item: Insight) {
+  if (item.id == null) return
+  const { error } = await sb.from('insights').update({ share_token: null, shared_at: null }).eq('id', item.id)
+  if (error) { ElMessage.error('取消分享失败：' + error.message); return }
+  item.share_token = null
+  item.shared_at = null
+}
+
+/* 分享页用：匿名读取（服务端函数只回展示字段） */
+async function loadSharedInsight(token: string): Promise<SharedInsight | null> {
+  const { data, error } = await sb.rpc('get_shared_insight', { tok: token })
+  if (error) throw new Error(/function|does not exist|schema cache/i.test(error.message)
+    ? '分享功能还没启用：请先执行 insights-schema.sql'
+    : error.message)
+  const row = Array.isArray(data) ? data[0] : data
+  return row || null
 }
 
 /* ================= 登录 / 注册 ================= */
@@ -656,6 +848,8 @@ export const store = {
   testAllProviders,
   loadConversations, openConversation, deleteConversation, deleteCurrent, newDraft, exportCurrent,
   send, stopAnswer, retryOne, addFiles, removeAttachment, editResend,
+  loadInsights, openInsightEditor, closeInsightEditor, draftInsight, saveInsight, deleteInsight,
+  shareInsight, unshareInsight, loadSharedInsight,
   setView: (v: View) => { state.view = v }
 }
 

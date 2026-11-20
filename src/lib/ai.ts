@@ -423,3 +423,75 @@ export async function fetchModels(baseUrl: string, apiKey: string): Promise<stri
     clearTimeout(timer)
   }
 }
+
+
+/* ================= 结论卡提炼（只有点按钮才调用，平时零成本） ================= */
+
+export interface InsightDraft {
+  title: string
+  question: string
+  conclusion: string
+  evidence: string
+  disputes: string
+  counter: string
+  followup: string
+  sources: string[]
+  tags: string[]
+}
+
+/**
+ * 组提炼用的消息：用户问什么 + 各家答了什么（截断，控制成本）。
+ * 只要求输出 JSON，方便直接落到表单里让你再改。
+ */
+export function buildInsightMessages(
+  question: string,
+  answers: { provider: string; name: string; content: string }[]
+): ChatMsg[] {
+  const list = answers
+    .filter(a => a.content && a.content.trim())
+    .map(a => `【${a.name}（${a.provider}）】\n${a.content.trim().slice(0, 2500)}`)
+    .join('\n\n')
+  const sys = [
+    '你是严谨的信息分析助手。用户把同一个问题发给了多个 AI，现在要把它整理成一张「结论卡」。',
+    '只输出一个 JSON 对象，不要 Markdown 代码块标记，不要任何解释文字。',
+    'JSON 字段（全部为字符串，sources/tags 为字符串数组）：',
+    '{"title":"12-20字标题","question":"用户的核心问题一句话","conclusion":"用户应形成的判断，2-4句，明确可执行；证据不足时写清取决于什么条件","evidence":"多家一致的要点，用；分隔，3-6条","disputes":"各家明显不一致之处，每条写成「分歧点：谁主张什么」，2-5条","counter":"最值得警惕的反例或风险，1-3条","followup":"还需要验证的问题，1-3条","sources":["主要采信哪几家，取值只能是 openai/gemini/deepseek/kimi/anthropic"],"tags":["2-4个中文标签，如 选品、广告投放、成本核算"]}',
+    '要求：不要罗列各家原话，要压缩成判断；不要编造任何一家没说过的内容；分歧处必须点明是哪几家对立。'
+  ].join('\n')
+  const user = `用户的问题：\n${question || '（见下方各家回答）'}\n\n各家回答：\n${list || '（无）'}`
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: user }
+  ]
+}
+
+/** 容忍代码块、前后废话、多余逗号的 JSON 解析 */
+export function parseInsightJson(raw: string): InsightDraft | null {
+  let t = String(raw || '').trim()
+  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  const s = t.indexOf('{')
+  const e = t.lastIndexOf('}')
+  if (s < 0 || e <= s) return null
+  const body = t.slice(s, e + 1).replace(/,\s*([}\]])/g, '$1')
+  let obj: any
+  try { obj = JSON.parse(body) } catch { return null }
+  if (!obj || typeof obj !== 'object') return null
+  const str = (v: any) => (typeof v === 'string' ? v.trim() : '')
+  const arr = (v: any, allow?: string[]) => {
+    const list = Array.isArray(v) ? v : (typeof v === 'string' ? String(v).split(/[，,、\s]+/) : [])
+    const out = list.map((x: any) => String(x).trim()).filter(Boolean)
+    return allow ? out.filter((x: string) => allow.includes(x)) : out.slice(0, 6)
+  }
+  const d: InsightDraft = {
+    title: str(obj.title), question: str(obj.question), conclusion: str(obj.conclusion),
+    evidence: str(obj.evidence), disputes: str(obj.disputes), counter: str(obj.counter),
+    followup: str(obj.followup),
+    sources: arr(obj.sources, ['openai', 'gemini', 'deepseek', 'kimi', 'anthropic']),
+    tags: arr(obj.tags)
+  }
+  /* 只要有一项实质内容就认为解析成功，避免模型少写字段就整张卡作废 */
+  const hasAny = d.title || d.conclusion || d.evidence || d.disputes || d.question
+  if (!hasAny) return null
+  if (!d.title) d.title = d.question ? d.question.slice(0, 18) : '未命名结论'
+  return d
+}
