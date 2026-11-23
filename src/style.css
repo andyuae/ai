@@ -1,18 +1,18 @@
 /* AI 群聊 · Vue 版全局样式（深蓝商务风） */
 :root {
-  /* ===== 字体：统一 Google Noto 家族 =====
-     Noto Sans 打头负责英文/数字/希腊/西里尔；后面的 Noto 各语种负责中日韩泰阿希天城文。
-     最后几个是兜底（Google Fonts 被墙/断网时也不会难看）。 */
+  /* ===== 字体：系统字体栈（不下载任何字体文件） =====
+     system-ui 打头：Windows 走 Segoe UI、macOS/iOS 走 SF Pro、Android 走 Roboto、鸿蒙走 HarmonyOS Sans。
+     后面依次补中文字体（苹方 / 微软雅黑 / 思源黑体 / 文泉驿）。
+     日韩泰阿希等文字由系统自带的字形回退兜底（各平台都有完整覆盖），不会出现豆腐块。 */
   --font-sans:
-    "Noto Sans", "Noto Sans SC", "Noto Sans TC", "Noto Sans JP", "Noto Sans KR",
-    "Noto Sans Arabic", "Noto Sans Hebrew", "Noto Sans Thai", "Noto Sans Devanagari",
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
-    "Source Han Sans SC", sans-serif;
-  /* 代码块用 Noto Sans Mono，等宽且和正文同族 */
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+    Arial, sans-serif;
+  /* 代码块用系统等宽字体 */
   --font-mono:
-    "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-    "Courier New", monospace;
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 
   --el-color-primary: #2f6bff;
   --el-color-primary-light-3: #6b93ff;
@@ -40,12 +40,7 @@ body {
 input, textarea, select, button, optgroup {
   font-family: inherit;
 }
-/* 用户消息里可能夹杂日文/韩文/阿拉伯文，按 lang 切换首选字体，字形更地道 */
-:lang(ja) { font-family: "Noto Sans JP", var(--font-sans) }
-:lang(ko) { font-family: "Noto Sans KR", var(--font-sans) }
-:lang(ar) { font-family: "Noto Sans Arabic", var(--font-sans) }
-:lang(he) { font-family: "Noto Sans Hebrew", var(--font-sans) }
-:lang(th) { font-family: "Noto Sans Thai", var(--font-sans) }
+/* 日文/韩文/阿拉伯文等：交给系统按语言自动回退（Windows 的 Segoe UI + 语言补充字体、macOS 的 Hiragino/Apple SD Gothic Neo 都很完整），这里不再单独指定 */
 .w100 { width: 100% }
 .muted { color: var(--muted) }
 .small { font-size: 12px }

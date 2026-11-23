@@ -583,43 +583,43 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 
 ---
 
-## 十六、全局字体（Google Noto 家族，多语种全覆盖）
+## 十六、全局字体（系统字体栈，零下载）
 
-全站只认两个字体变量，写在 `src/style.css` 的 `:root` 里：
+不引任何外部字体，全站只认两个变量，写在 `src/style.css` 的 `:root` 里：
 
 ```css
---font-sans: "Noto Sans", "Noto Sans SC", "Noto Sans TC", "Noto Sans JP", "Noto Sans KR",
-             "Noto Sans Arabic", "Noto Sans Hebrew", "Noto Sans Thai", "Noto Sans Devanagari",
-             -apple-system, ..., "PingFang SC", "Microsoft YaHei", sans-serif;
---font-mono: "Noto Sans Mono", ui-monospace, ..., monospace;
+--font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+             "Helvetica Neue", "PingFang SC", "Hiragino Sans GB",
+             "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
+             "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
+--font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+             "Liberation Mono", "Courier New", monospace;
 ```
 
-- 顺序有讲究：`Noto Sans` 打头，英文/数字/标点统一走它；中日韩泰阿等交给后面的 Noto 分语种字体，缺字才往下掉。最后一段是断网/被墙时的系统兜底。
+- `system-ui` 打头：Windows → Segoe UI、macOS/iOS → SF Pro、Android → Roboto、鸿蒙 → HarmonyOS Sans，各平台用自家最贴合系统的那套，和系统原生界面一致。
+- 紧跟中文几档：苹方（macOS/iOS）→ 冬青黑（旧 Mac）→ 微软雅黑（Windows）→ 思源黑体 / 文泉驿（Linux）。
+- 日文/韩文/阿拉伯文/泰文等**不用指定**：系统会按字符自动回退到自带的语言字体（Windows 的语言补充字体、macOS 的 Hiragino / Apple SD Gothic Neo、Android 的 Noto 全家桶），不会出现豆腐块。
 - `--el-font-family: var(--font-sans)` 一并覆盖，Element Plus 的输入框、按钮、弹窗才会跟着变。`style.css` 必须在 `element-plus/dist/index.css` **之后** import（`main.ts` 里已经是这个顺序）。
 - `input, textarea, select, button { font-family: inherit }`：表单控件默认是系统字体，不加这条会「有的地方是老字体」。
-- `:lang(ja/ko/ar/he/th)` 单独指定首选字体，夹在中文里的日韩阿文本字形更地道。
-- 代码块用 `--font-mono`（Noto Sans Mono），等宽且同族，不影响对齐。
+- 代码块用 `--font-mono`，等宽且不影响对齐。
 
-字体通过 `index.html` 里的一个 CSS2 链接引入：
+### 为什么不用 Google Noto
 
-```
-https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700
-  &family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;700
-  &family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700
-  &family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Sans+Hebrew:wght@400;700
-  &family=Noto+Sans+Thai:wght@400;700&family=Noto+Sans+Devanagari:wght@400;700
-  &family=Noto+Sans+Mono:wght@400;500&display=swap
-```
+试过引 Google Fonts 的 Noto 全家桶（Noto Sans / SC / JP / KR / Arabic / Hebrew / Thai / Devanagari / Mono），多语种确实齐全，但代价太实在：
+
+- 首屏要拉几十个字体子集文件，弱网下会「先系统字体、再整体跳一下」；
+- 国内网络访问 `fonts.googleapis.com` 经常超时；
+- CJK 字体文件本身很大，纯前端静态站扛不住。
+
+系统字体栈零请求、零闪烁，中英数字都很耐看，够用。
 
 ### 坑
 
 | 现象 | 原因 | 解法 |
 |---|---|---|
-| 只有部分文字换了字体 | 权重没请求（比如用了 600 却只引 400;700），浏览器合成假粗体或回退 | 常用 400;500;600;700 都写上；不常用语种只留 400;700 |
 | 输入框、按钮还是老字体 | 表单控件不继承 `font-family` | 显式 `font-family: inherit` |
 | Element Plus 组件字体没变 | `--el-font-family` 没覆盖 / `style.css` 被 EP 样式盖掉 | 变量覆盖 + 保证 import 顺序 |
-| 首屏文字「闪一下」变形 | 字体没下载完 | 链接带 `display=swap`，先系统字体显示再替换 |
-| 国内网络打不开 Google Fonts | 域名被墙 | 链尾的系统字体兜底生效，页面照常可用；要彻底解决就把 woff2 自托管到 `public/fonts` |
+| 想统一成某个品牌字体 | 系统栈做不到 | 只能自托管 woff2（CJK 需子集化），别直接引 Google Fonts |
 
 ---
 
