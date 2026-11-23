@@ -583,6 +583,46 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 
 ---
 
+## 十六、全局字体（Google Noto 家族，多语种全覆盖）
+
+全站只认两个字体变量，写在 `src/style.css` 的 `:root` 里：
+
+```css
+--font-sans: "Noto Sans", "Noto Sans SC", "Noto Sans TC", "Noto Sans JP", "Noto Sans KR",
+             "Noto Sans Arabic", "Noto Sans Hebrew", "Noto Sans Thai", "Noto Sans Devanagari",
+             -apple-system, ..., "PingFang SC", "Microsoft YaHei", sans-serif;
+--font-mono: "Noto Sans Mono", ui-monospace, ..., monospace;
+```
+
+- 顺序有讲究：`Noto Sans` 打头，英文/数字/标点统一走它；中日韩泰阿等交给后面的 Noto 分语种字体，缺字才往下掉。最后一段是断网/被墙时的系统兜底。
+- `--el-font-family: var(--font-sans)` 一并覆盖，Element Plus 的输入框、按钮、弹窗才会跟着变。`style.css` 必须在 `element-plus/dist/index.css` **之后** import（`main.ts` 里已经是这个顺序）。
+- `input, textarea, select, button { font-family: inherit }`：表单控件默认是系统字体，不加这条会「有的地方是老字体」。
+- `:lang(ja/ko/ar/he/th)` 单独指定首选字体，夹在中文里的日韩阿文本字形更地道。
+- 代码块用 `--font-mono`（Noto Sans Mono），等宽且同族，不影响对齐。
+
+字体通过 `index.html` 里的一个 CSS2 链接引入：
+
+```
+https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700
+  &family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;700
+  &family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700
+  &family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Sans+Hebrew:wght@400;700
+  &family=Noto+Sans+Thai:wght@400;700&family=Noto+Sans+Devanagari:wght@400;700
+  &family=Noto+Sans+Mono:wght@400;500&display=swap
+```
+
+### 坑
+
+| 现象 | 原因 | 解法 |
+|---|---|---|
+| 只有部分文字换了字体 | 权重没请求（比如用了 600 却只引 400;700），浏览器合成假粗体或回退 | 常用 400;500;600;700 都写上；不常用语种只留 400;700 |
+| 输入框、按钮还是老字体 | 表单控件不继承 `font-family` | 显式 `font-family: inherit` |
+| Element Plus 组件字体没变 | `--el-font-family` 没覆盖 / `style.css` 被 EP 样式盖掉 | 变量覆盖 + 保证 import 顺序 |
+| 首屏文字「闪一下」变形 | 字体没下载完 | 链接带 `display=swap`，先系统字体显示再替换 |
+| 国内网络打不开 Google Fonts | 域名被墙 | 链尾的系统字体兜底生效，页面照常可用；要彻底解决就把 woff2 自托管到 `public/fonts` |
+
+---
+
 ## 附：技术底座一句话总结
 
 > **Vue 3 + Vite + TypeScript + Element Plus 做界面，Supabase（Postgres + Auth + RLS）做数据与账号，浏览器直连 5 家 OpenAI 兼容接口，GitHub Pages 静态托管。没有后端、没有服务器、密钥不落前端。**
