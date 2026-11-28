@@ -250,11 +250,13 @@ await admin.auth.admin.createUser({ email, password, email_confirm: true, user_m
 
 部署：Supabase 控制台 → Edge Functions → Deploy a new function → 名字必须是 `admin-users` → 把整份文件粘进在线编辑器 → Deploy。
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 平台默认注入，不用手动配环境变量。
+注意：控制台的函数名（slug）建好之后**不能改**，只能删掉重建。当前环境里实际建成了 `hyper-function`，所以前端做了名字兼容（见下）。
 
-前端在 `src/lib/admin.ts`：
+前端在 `src/lib/admin.ts`，按候选名依次探测，第一个能通的会缓存下来：
 
 ```ts
-const { data, error } = await sb.functions.invoke('admin-users', { body: { action, ...payload } })
+const FN_CANDIDATES = ['hyper-function', 'admin-users']   // 顺序：实际部署的在前
+// 404 才换下一个（404 时服务端什么都没执行，重试安全）；其它错误直接抛给用户看
 ```
 
 设置页「用户管理」卡片用 `isSuperAdmin(state.user)` 控制渲染，只有超管看得到。

@@ -26,9 +26,24 @@ export interface AdminUserRow {
   last_sign_in_at: string | null
 }
 
+/** 边缘函数名候选：按顺序探测，第一个能通的会被记住。
+ *  控制台里实际部署的名字是 hyper-function（创建时填的），admin-users 是文档里的标准名。
+ *  这样两边任意一个名字都能用，将来删掉重建改名也不会挂。 */
+const FN_CANDIDATES = ['hyper-function', 'admin-users']
+let resolvedFn = ''
+
 async function call<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
-  const { data, error } = await sb.functions.invoke('admin-users', { body: { action, ...payload } })
-  if (error) {
+  const names = resolvedFn
+    ? [resolvedFn, ...FN_CANDIDATES.filter(n => n !== resolvedFn)]
+    : [...FN_CANDIDATES]
+
+  for (const name of names) {
+    const { data, error } = await sb.functions.invoke(name, { body: { action, ...payload } })
+    if (!error) {
+      resolvedFn = name
+      if (data?.error) throw new Error(data.error)
+      return data as T
+    }
     // functions-js 把非 2xx 包装成 FunctionsHttpError，message 里只有状态码，真实原因在 context 响应体里
     const ctx: any = (error as any).context
     let detail = ''
@@ -38,13 +53,11 @@ async function call<T = any>(action: string, payload: Record<string, any> = {}):
         detail = j?.error || j?.message || ''
       } catch { /* 响应体不是 JSON，忽略 */ }
     }
-    if (ctx?.status === 404) {
-      throw new Error('用户管理服务未部署：请先在 Supabase 部署 admin-users 边缘函数')
-    }
+    // 404 = 云端没有这个函数名，换下一个候选（此时对方什么都没执行，重试是安全的）
+    if (ctx?.status === 404) continue
     throw new Error(detail || (error as any).message || '调用失败')
   }
-  if (data?.error) throw new Error(data.error)
-  return data as T
+  throw new Error('用户管理服务未部署：云端找不到 ' + names.join(' / ') + ' 边缘函数')
 }
 
 export async function listUsers(): Promise<AdminUserRow[]> {
