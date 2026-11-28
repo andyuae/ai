@@ -137,8 +137,9 @@ from (
 on conflict (id) do nothing;
 
 /* ---------- 6. 登录名解析：用户名 → 邮箱 ----------
-   登录页允许输入「用户名」或「邮箱」。Supabase Auth 只认邮箱，
-   所以短名先在这里查一次对应邮箱（只返回 email 一个字段，不泄露其他信息）。 */
+   登录页允许输入「用户名」或「邮箱」，用户名可以是任意字符（中文/空格/符号）。
+   Supabase Auth 只认邮箱，所以短名先在这里查一次对应邮箱（只返回 email，不泄露其他信息）。
+   顺序：先按用户名精确匹配，再兜底按邮箱匹配。 */
 create or replace function public.resolve_login_email(p_name text)
 returns text
 language sql
@@ -147,9 +148,12 @@ set search_path = public
 stable
 as $$
   select email
-  from public.users
-  where lower(username) = lower(trim(p_name))
-     or lower(email)    = lower(trim(p_name))
+  from (
+    select 1 as pr, email from public.users where lower(username) = lower(trim(p_name))
+    union all
+    select 2 as pr, email from public.users where lower(email)    = lower(trim(p_name))
+  ) t
+  order by pr
   limit 1
 $$;
 

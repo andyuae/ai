@@ -53,9 +53,12 @@ export async function listUsers(): Promise<AdminUserRow[]> {
 }
 
 export interface CreateUserPayload {
-  email: string
+  /** 用户名：任意字符（中文/空格/符号都行），必填，不能重名 */
+  username: string
+  /** 邮箱：选填，留空则后台自动生成内部账号，用户只靠用户名登录 */
+  email?: string
+  /** 密码：任意字符，至少 6 位（Supabase 平台下限） */
   password: string
-  username?: string
   role?: 'admin' | 'member'
   note?: string
 }

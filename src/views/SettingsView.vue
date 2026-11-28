@@ -117,19 +117,21 @@ function openUserDialog() {
 }
 
 async function submitNewUser() {
+  const username = newUsername.value.trim()
   const email = newEmail.value.trim()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ElMessage.warning('请填写正确的邮箱地址'); return }
-  if (newPassword.value.length < 6) { ElMessage.warning('初始密码至少 6 位'); return }
+  if (!username) { ElMessage.warning('请填写用户名（中文、符号、空格都可以）'); return }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ElMessage.warning('邮箱格式不对；不想填就留空，系统会自动生成'); return }
+  if (newPassword.value.length < 6) { ElMessage.warning('密码至少 6 位（Supabase 平台限制，字符不限）'); return }
   creating.value = true
   try {
     await createUser({
+      username,
       email,
       password: newPassword.value,
-      username: newUsername.value.trim(),
       role: newRole.value,
       note: newNote.value.trim()
     })
-    ElMessage.success('账号已创建，请把用户名（或邮箱）和初始密码告知对方')
+    ElMessage.success('账号已创建，把用户名和密码告知对方即可登录')
     userDialog.value = false
     await loadAdminUsers()
   } catch (e: any) {
@@ -204,6 +206,11 @@ function fmtTime(t: string | null) {
   if (isNaN(d.getTime())) return '–'
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** 没填邮箱时后台自动生成的占位邮箱，界面上不显示，避免一串乱码 */
+function isInternalEmail(e: string) {
+  return !!e && e.toLowerCase().endsWith('@user.local')
 }
 
 async function saveKey(key: string) {
@@ -388,7 +395,10 @@ async function changePass() {
                 </div>
                 <div v-if="u.note" class="ut-note">{{ u.note }}</div>
               </td>
-              <td class="ut-mail">{{ u.email }}</td>
+              <td class="ut-mail" :title="u.email">
+                <span v-if="isInternalEmail(u.email)" class="muted">未设置（内部账号）</span>
+                <template v-else>{{ u.email }}</template>
+              </td>
               <td>
                 <el-tag size="small" :type="u.role === 'admin' ? 'danger' : 'info'" effect="plain">
                   {{ u.role === 'admin' ? '管理员' : '成员' }}
@@ -433,14 +443,14 @@ async function changePass() {
     <!-- 新建账号弹窗 -->
     <el-dialog v-model="userDialog" title="新建账号" width="440px" append-to-body>
       <el-form label-width="84px" @submit.prevent="submitNewUser">
-        <el-form-item label="用户名">
-          <el-input v-model="newUsername" maxlength="30" placeholder="不填则取邮箱 @ 前面那段" autocomplete="off" />
+        <el-form-item label="用户名" required>
+          <el-input v-model="newUsername" maxlength="64" placeholder="随便填：中文、空格、符号、emoji 都行" autocomplete="off" />
         </el-form-item>
         <el-form-item label="邮箱">
-          <el-input v-model="newEmail" placeholder="name@company.com" autocomplete="off" />
+          <el-input v-model="newEmail" placeholder="选填，留空则自动生成内部账号" autocomplete="off" />
         </el-form-item>
-        <el-form-item label="初始密码">
-          <el-input v-model="newPassword" placeholder="至少 6 位" show-password autocomplete="new-password" />
+        <el-form-item label="密码" required>
+          <el-input v-model="newPassword" placeholder="任意字符，6 位以上" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="角色">
           <el-radio-group v-model="newRole">
@@ -453,7 +463,8 @@ async function changePass() {
         </el-form-item>
       </el-form>
       <div class="muted small">
-        登录时「用户名」和「邮箱」都能用（Supabase 账号本身必须是邮箱格式）；创建后立即生效，不需要邮箱验证。
+        登录只填「用户名 + 密码」即可，邮箱留空完全不影响使用；邮箱填了也能用它登录。
+        密码 6 位是 Supabase 平台的硬下限（改不了），字符类型不限：中文、空格、符号都能用。
       </div>
       <template #footer>
         <el-button @click="userDialog = false">取消</el-button>

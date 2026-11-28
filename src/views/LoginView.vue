@@ -32,7 +32,7 @@ async function submit() {
       </div>
       <el-form @submit.prevent="submit">
         <el-form-item>
-          <el-input v-model="email" type="text" placeholder="请输入账号或邮箱" autocomplete="username" size="large" />
+          <el-input v-model="email" type="text" placeholder="请输入用户名（或邮箱）" autocomplete="username" size="large" />
         </el-form-item>
         <el-form-item>
           <el-input v-model="password" type="password" placeholder="请输入密码" show-password

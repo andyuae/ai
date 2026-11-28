@@ -592,14 +592,14 @@ const LOGIN_ALIAS: Record<string, string> = {
 }
 async function resolveLoginEmail(input: string): Promise<string> {
   const v = input.trim()
-  if (!v || v.includes('@')) return v
+  if (!v) return v
   const alias = LOGIN_ALIAS[v.toLowerCase()]
   if (alias) return alias
-  // 用户信息表里的用户名（public.users.username）——表还没建时静默跳过
+  // 用户名可以是任意字符（含中文、空格、甚至 @），所以先查用户表；查不到再按邮箱原样走
   try {
     const { data } = await sb.rpc('resolve_login_email', { p_name: v })
     if (typeof data === 'string' && data.includes('@')) return data
-  } catch { /* 忽略 */ }
+  } catch { /* 表还没建时忽略，按原样继续 */ }
   return v
 }
 

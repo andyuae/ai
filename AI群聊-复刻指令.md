@@ -327,6 +327,29 @@ if (typeof data === 'string' && data.includes('@')) return data
 | `policy ... infinite recursion detected` | 策略里查了本表 | 判断条件只用 JWT 里的信息 |
 | 删了 auth 用户，档案还留着 | 外键没写 `on delete cascade` | `id uuid references auth.users(id) on delete cascade` |
 
+### 账号规则（尽量宽松）
+
+| 项目 | 规则 |
+|---|---|
+| 用户名 | **任意字符**：中文、空格、符号、emoji 都行；1–64 字符；不区分大小写唯一（重名直接拒绝，不偷偷改名） |
+| 邮箱 | **选填**。不填时后台自动生成 `u_<12位随机>@user.local` 占位邮箱，用户只靠用户名登录；填了也可以用邮箱登录 |
+| 密码 | **字符类型不限**（中文/空格/符号都行），最少 6 位——这是 Supabase Auth 的平台硬下限，Dashboard 里最低也只能设 6，绕不过去 |
+
+登录解析顺序（`store.ts` 的 `resolveLoginEmail`）：`LOGIN_ALIAS` 硬编码别名 → `rpc('resolve_login_email')` 查用户名/邮箱 → 都查不到就按原样当邮箱交给 Supabase。
+
+**不要**用「输入里有没有 `@`」来短路，用户名允许含 `@`，这样会漏查表：
+
+```ts
+// ❌ 错：用户名「张三@公司」直接当邮箱，永远查不到
+if (v.includes('@')) return v
+// ✅ 对：一律先查表，查不到再按邮箱走
+const { data } = await sb.rpc('resolve_login_email', { p_name: v })
+if (typeof data === 'string' && data.includes('@')) return data
+return v
+```
+
+内部占位邮箱在用户管理列表里显示成「未设置（内部账号）」，不显示那串随机串。
+
 ---
 
 ## 六、AI 调用层（最容易踩坑的地方，重点看）

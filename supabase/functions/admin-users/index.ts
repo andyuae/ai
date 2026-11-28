@@ -105,20 +105,36 @@ Deno.serve(async (req: Request) => {
     return json({ users })
   }
 
-  /* 4. 新建（同时写 public.users 档案，触发器没建也能兜住） */
+  /* 4. 新建（同时写 public.users 档案，触发器没建也能兜住）
+     规则尽量宽松：用户名任意字符（中文/空格/符号都行），邮箱可以不填，
+     不填就自动生成一个内部邮箱，用户只靠「用户名 + 密码」登录。 */
   if (action === 'create') {
-    const email = String(body.email || '').trim().toLowerCase()
+    const emailInput = String(body.email || '').trim().toLowerCase()
     const password = String(body.password || '')
-    const username = String(body.username || '').trim().slice(0, 30)
+    const username = String(body.username || '').trim().slice(0, 64)
     const role = body.role === 'admin' ? 'admin' : 'member'
     const note = String(body.note || '').slice(0, 40)
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: '邮箱格式不正确' }, 400)
-    if (password.length < 6) return json({ error: '密码至少 6 位' }, 400)
 
-    // 用户名查重（表还没建时 ex 为 null，直接跳过）
-    if (username) {
-      const { data: ex } = await admin.from('users').select('id').ilike('username', username).limit(1)
-      if (ex && ex.length) return json({ error: '用户名「' + username + '」已被占用，换一个' }, 400)
+    if (!username) return json({ error: '用户名不能为空' }, 400)
+    // 6 位是 Supabase Auth 的平台下限，改不了；字符类型不限（中文/空格/符号都可以）
+    if (password.length < 6) return json({ error: '密码至少 6 位（Supabase 平台限制，字符不限）' }, 400)
+
+    let email = emailInput
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return json({ error: '邮箱格式不正确（也可以留空，系统自动生成内部账号）' }, 400)
+    }
+    if (!email) {
+      // 内部占位邮箱，永远收不到信；用户实际只用用户名登录
+      email = 'u_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12) + '@user.local'
+    }
+
+    // 用户名查重：全表比对，避免 ilike 把 % _ 当通配符
+    const { data: all, error: dupErr } = await admin.from('users').select('username')
+    if (!dupErr && all) {
+      const lower = username.toLowerCase()
+      if (all.some((r: any) => String(r.username || '').toLowerCase() === lower)) {
+        return json({ error: '用户名「' + username + '」已被占用，换一个' }, 400)
+      }
     }
 
     const { data, error } = await admin.auth.admin.createUser({
@@ -136,11 +152,11 @@ Deno.serve(async (req: Request) => {
     if (uid) {
       // 触发器已建好档案时这里是更新；表还没建时忽略错误，不影响建号
       await admin.from('users').upsert(
-        { id: uid, username: username || email.split('@')[0], email, role, note, init_password: password },
+        { id: uid, username, email, role, note, init_password: password },
         { onConflict: 'id' }
       )
     }
-    return json({ id: uid })
+    return json({ id: uid, email })
   }
 
   /* 5. 重置密码（同步更新初始密码记录，方便再次告知） */
