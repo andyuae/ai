@@ -762,6 +762,77 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 
 ---
 
+## 十七、Cloudflare Pages 部署（Direct Upload，不经 GitHub）
+
+### 没有桌面客户端
+
+Cloudflare 没有「Pages 客户端」这种软件。命令行工具 **Wrangler** 就是它的客户端，通过 `npx` 调用即可，不必全局安装：
+
+```bash
+npx wrangler@4 --version
+```
+
+### 三种发布方式，只有一种不经过 GitHub
+
+| 方式 | 要不要 GitHub | 每次发布 | 备注 |
+|---|---|---|---|
+| Git 集成 | 要 | push 后自动构建 | 最省心，但依赖 GitHub |
+| 控制台 Direct Upload | 不要 | 手动拖整个 `docs` 文件夹进网页 | 零配置，但要手动 |
+| **Wrangler 直传** | **不要** | **一条命令** | 本方案 |
+
+**关键限制**：Pages 项目在创建时就定了类型（Direct Upload 还是 Git 集成），**之后不能互转**。想以后改成 Git 集成，只能删项目重建（域名可复用）。所以要一次选对。
+
+### 首次配置（约 3 分钟）
+
+```bash
+cd "D:\Workbuddy Program\ai"
+
+npm run cf:login    # 打开浏览器授权，凭证存本机 ~/.wrangler，只需一次
+npm run cf:init     # 创建项目 ai，分配 ai.pages.dev
+```
+
+`cf:init` 如果提示项目已存在，说明已经建过，跳过即可。
+
+> 不想用浏览器授权？也可以建一个 API Token（Cloudflare 控制台 → 我的资料 → API 令牌 → 模板选「Cloudflare Pages: Edit」），然后设环境变量 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`。两个都要有，缺 account id 是 CI 里最常见的失败原因。
+
+### 日常发布
+
+```bash
+npm run deploy:cf
+```
+
+等价于「构建 → 把 `docs` 上传到一个名为 `ai` 的项目」：
+
+```bash
+vite build
+npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=true
+```
+
+- `docs` 是**已构建的产物目录**，Wrangler 只上传、不构建
+- `--commit-dirty=true` 让工作区有未提交改动时也能发布（否则 Wrangler 会拦）
+- 上传的是增量内容，几百 KB 通常 5–10 秒完成
+
+### 两平台并存的现实做法
+
+| 平台 | 发布方式 |
+|---|---|
+| GitHub Pages | `git push origin main`（产物已在 `docs/`，Pages 直接读） |
+| Cloudflare Pages | `npm run deploy:cf`（同一份 `docs/`，直传） |
+
+同一份产物、同一个 `base: './'`，两边都能跑。**注意**：直传不会因为 push 自动触发，改了代码只 push 而不跑 `deploy:cf`，CF 那边会停在旧版本——这是 Direct Upload 的固有特性，不是故障。
+
+### 坑
+
+| 现象 | 原因 | 解法 |
+|---|---|---|
+| `wrangler pages deploy` 报项目不存在 | 项目还没建 | 先 `npm run cf:init`（或去掉 `--project-name` 让它交互式创建） |
+| 报 401 / Authentication error | 本机没授权或 token 过期 | `npm run cf:login`，或检查 `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` 是否都设了 |
+| 部署成功但页面白屏 | 传了源码目录而不是 `docs` | 第一个参数必须是产物目录；`base` 保持 `'./'` |
+| 想让 CF 跟着 git push 自动更新 | Direct Upload 项目不支持 | 只能删项目重建成 Git 集成，或加一个本地 git hook 自动跑 `deploy:cf` |
+| 提示 Pages 已进入维护模式 | 2025-04 起 CF 把新功能投向 Workers | 纯静态站 Pages 仍完整支持、无停用计划；新项目想用 Workers Static Assets 也行，`wrangler deploy` 而非 `pages deploy` |
+
+---
+
 ## 附：技术底座一句话总结
 
 > **Vue 3 + Vite + TypeScript + Element Plus 做界面，Supabase（Postgres + Auth + RLS）做数据与账号，浏览器直连 5 家 OpenAI 兼容接口，GitHub Pages 静态托管。没有后端、没有服务器、密钥不落前端。**
