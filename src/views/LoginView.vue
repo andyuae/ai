@@ -11,12 +11,12 @@ const busy = ref(false)
 
 async function submit() {
   err.value = ''
-  if (!email.value.trim() || !password.value.trim()) { err.value = '请填写邮箱和密码'; return }
+  if (!email.value.trim() || !password.value.trim()) { err.value = '请填写账号和密码'; return }
   busy.value = true
   try {
     const r = await store.doLogin(email.value.trim(), password.value.trim(), signup.value)
     if (r === 'SIGNUP_OK') {
-      ElMessage.success('账号创建成功，请使用邮箱和密码登录')
+      ElMessage.success('账号创建成功，请使用账号和密码登录')
       signup.value = false
     } else if (r) {
       err.value = r
@@ -39,7 +39,7 @@ async function submit() {
       </div>
       <el-form @submit.prevent="submit">
         <el-form-item>
-          <el-input v-model="email" type="email" placeholder="请输入邮箱" autocomplete="email" size="large" />
+          <el-input v-model="email" type="text" placeholder="请输入账号或邮箱" autocomplete="username" size="large" />
         </el-form-item>
         <el-form-item>
           <el-input v-model="password" type="password" placeholder="请输入密码" show-password

@@ -220,6 +220,24 @@ await sb.auth.updateUser({ password: newPass })
 
 `App.vue` 首屏：先 `getSession()`，有 session 就 `enterApp(user)`（并行加载偏好 + 密钥 + 会话列表），加载完成前显示「加载中……」，**不要先渲染聊天页再跳登录页**。
 
+### 登录名别名（短名代替邮箱）
+
+Supabase Auth 的 `email` 字段**必须是邮箱格式**，`ai` 这种短名会被 GoTrue 直接拒掉（invalid format）。想用短名登录，只能在前端做映射：
+
+```ts
+// store.ts
+const LOGIN_ALIAS: Record<string, string> = { ai: 'ai@qq.com' }   // 键统一小写
+function resolveLoginEmail(input: string) {
+  const v = input.trim()
+  if (!v || v.includes('@')) return v        // 带 @ 的按原样走，完整邮箱仍可登录
+  return LOGIN_ALIAS[v.toLowerCase()] || v
+}
+```
+
+`doLogin` 一进来就 `const email = resolveLoginEmail(emailInput)`，登录页输入框改成 `type="text"`、占位「请输入账号或邮箱」，这样输入 `ai` + 密码即可登录。
+
+注意：账号在云端仍然是 `ai@qq.com`，找回密码邮件会发到这个真实邮箱；要**彻底改掉**账号邮箱，只能在 Supabase Dashboard（Authentication → Users → 编辑 Email）或用 service_role key 调 `auth.admin.updateUserById`，不要在 SQL 里单独改 `auth.users.email`（`auth.identities` 会不同步）。
+
 ---
 
 ## 六、AI 调用层（最容易踩坑的地方，重点看）

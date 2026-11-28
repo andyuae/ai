@@ -585,8 +585,20 @@ function minuteToText(m: Minute): string {
 }
 
 /* ================= 登录 / 注册 ================= */
-async function doLogin(email: string, password: string, signup: boolean): Promise<string | null> {
+/* 登录名别名：Supabase Auth 只接受邮箱格式（必须有 @），所以「ai」这种短名字在前端映射成真实账号邮箱。
+   新增别名只需在这里加一行，键统一小写；输入里带 @ 的按原样走，兼容完整邮箱登录。 */
+const LOGIN_ALIAS: Record<string, string> = {
+  ai: 'ai@qq.com'
+}
+function resolveLoginEmail(input: string): string {
+  const v = input.trim()
+  if (!v || v.includes('@')) return v
+  return LOGIN_ALIAS[v.toLowerCase()] || v
+}
+
+async function doLogin(emailInput: string, password: string, signup: boolean): Promise<string | null> {
   // 返回 null 表示成功，否则返回错误提示文案
+  const email = resolveLoginEmail(emailInput)
   if (signup) {
     if (password.length < 6) return '密码至少 6 位'
     const { error } = await sb.auth.signUp({ email, password })
@@ -594,7 +606,7 @@ async function doLogin(email: string, password: string, signup: boolean): Promis
     return 'SIGNUP_OK'
   }
   const { data, error } = await sb.auth.signInWithPassword({ email, password })
-  if (error) return error.message === 'Invalid login credentials' ? '邮箱或密码不正确，请重试' : ('登录失败：' + error.message)
+  if (error) return error.message === 'Invalid login credentials' ? '账号或密码不正确，请重试' : ('登录失败：' + error.message)
   await enterApp(data.user)
   return null
 }
