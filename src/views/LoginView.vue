@@ -26,7 +26,7 @@ async function submit() {
   <div class="login-wrap">
     <div class="login-card">
       <div class="login-logo">
-        <span class="logo-circle">群</span>
+        <img class="logo-circle" src="/favicon.svg" alt="" aria-hidden="true" />
         <h1>AI 群聊</h1>
         <p>一条消息，同时发给多个 AI，各自独立回答</p>
       </div>
