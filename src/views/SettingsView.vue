@@ -46,10 +46,6 @@ async function onSecProvider(v: string) {
   await persistSecretary()
 }
 
-const oldPass = ref('')
-const newPass = ref('')
-const passMsg = ref('')
-
 async function loadUsageData() {
   usageLoading.value = true
   usageErr.value = ''
@@ -228,13 +224,6 @@ async function saveBase(key: string) {
 function onModelChange(key: string, checked: string[]) {
   store.setSelModels(key, checked || [])
 }
-
-async function changePass() {
-  passMsg.value = ''
-  const r = await store.changePassword(oldPass.value, newPass.value)
-  if (r) passMsg.value = r
-  else { passMsg.value = '✅ 密码修改成功'; oldPass.value = ''; newPass.value = '' }
-}
 </script>
 
 <template>
@@ -363,7 +352,8 @@ async function changePass() {
         <div>
           <h2>用户管理 <el-tag size="small" type="warning" effect="plain">仅超级管理员</el-tag></h2>
           <div class="sub">
-            登录页已关闭自助注册，账号只能在这里开通。新建后把「用户名（或邮箱）+ 初始密码」告知对方，对方登录后可在下方自行改密，改完可以在这里点「清除」把初始密码记录抹掉。
+            登录页已关闭自助注册，账号只能在这里开通。新建后把「用户名（或邮箱）+ 初始密码」告知对方；
+            对方忘了密码就在这里点「重置密码」给他设新的，不想再留记录时点「清除」。
             删除账号会一并清除他的全部会话、密钥和用量记录。
           </div>
         </div>
@@ -420,23 +410,6 @@ async function changePass() {
             </tr>
           </tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- 账号安全 -->
-    <div class="settings-card">
-      <h2>账号安全</h2>
-      <div class="pass-form">
-        <div class="pass-row">
-          <label class="pass-label">原密码</label>
-          <el-input v-model="oldPass" type="password" show-password placeholder="请输入当前密码" />
-        </div>
-        <div class="pass-row">
-          <label class="pass-label">新密码</label>
-          <el-input v-model="newPass" type="password" show-password placeholder="至少 6 位" />
-          <el-button type="primary" @click="changePass">确认修改</el-button>
-        </div>
-        <div v-if="passMsg" class="muted pass-msg">{{ passMsg }}</div>
       </div>
     </div>
 
