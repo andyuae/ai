@@ -40,7 +40,7 @@ onMounted(async () => {
 <template>
   <div class="share-page">
     <div class="share-bar">
-      <span class="share-brand">AI 圆桌 · 结论卡</span>
+      <span class="share-brand">AI 群聊 · 结论卡</span>
       <button class="share-home" @click="goHome">我也要问五个 AI →</button>
     </div>
 
@@ -86,7 +86,7 @@ onMounted(async () => {
       </div>
 
       <footer class="share-foot">
-        这是只读页面。内容由本人在「AI 圆桌」中对比多家 AI 的回答后整理，判断属于个人观点，不构成建议。
+        这是只读页面。内容由本人在「AI 群聊」中对比多家 AI 的回答后整理，判断属于个人观点，不构成建议。
       </footer>
     </article>
   </div>

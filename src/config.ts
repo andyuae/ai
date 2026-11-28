@@ -12,7 +12,7 @@ declare global {
 }
 
 const RUNTIME = (typeof window !== 'undefined' && window.__APP_CONFIG__) || {}
-const ENV = (import.meta as any).env || {}
+const ENV = import.meta.env
 
 export const SUPABASE_URL =
   RUNTIME.supabaseUrl || ENV.VITE_SUPABASE_URL || 'https://dkmdttuwzaghiehvkfua.supabase.co'
