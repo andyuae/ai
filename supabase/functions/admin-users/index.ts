@@ -4,7 +4,8 @@
 
    为什么需要它：创建 auth 用户必须用 service_role key，这个 key 绝不能
    放在前端代码里。所以前端只调这个函数（带自己的登录 JWT），函数内部
-   校验「调用者邮箱 == 超管邮箱」之后，再用 service_role 调 Admin API。
+   校验「调用者在 public.users 里的 role == admin」之后，再用 service_role 调 Admin API。
+   注意：权限只看数据表里的 role，代码里不写死任何邮箱或用户名。
 
    部署（一次即可，2 分钟）：
      1. Supabase 控制台 → Edge Functions → Deploy a new function
@@ -22,9 +23,6 @@
 
 // @ts-nocheck —— 本文件运行在 Deno 里，不参与前端 tsc 检查
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
-/** 超级管理员邮箱（与前端 src/lib/admin.ts 的 SUPER_ADMIN_EMAIL 保持一致） */
-const SUPER_ADMIN_EMAIL = 'ai@qq.com'
 
 const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -58,7 +56,7 @@ Deno.serve(async (req: Request) => {
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
   if (!url || !anonKey || !serviceKey) return json({ error: '函数缺少环境变量，请检查部署设置' }, 500)
 
-  /* 1. 校验调用者：必须是已登录的超管本人 */
+  /* 1. 校验调用者：必须是已登录账号 */
   const authHeader = req.headers.get('Authorization') || ''
   if (!authHeader) return json({ error: '未登录' }, 401)
 
@@ -69,14 +67,23 @@ Deno.serve(async (req: Request) => {
   const { data: authData, error: authErr } = await caller.auth.getUser()
   const me = authData?.user
   if (authErr || !me) return json({ error: '登录状态已失效，请重新登录' }, 401)
-  if ((me.email || '').toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
-    return json({ error: '无权操作：仅超级管理员可管理用户' }, 403)
-  }
 
-  /* 2. 用 service_role 建管理员客户端 */
+  /* 2. 用 service_role 建管理员客户端，并校验权限 */
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   })
+
+  /* 权限来源：public.users.role。改管理员只需改这张表，不用改代码、不用重新部署。
+     读不到档案按「无权限」处理，宁可拒绝也不误放行。 */
+  const { data: profile, error: profileErr } = await admin
+    .from('users')
+    .select('role')
+    .eq('id', me.id)
+    .maybeSingle()
+  if (profileErr) return json({ error: '读取权限信息失败：' + profileErr.message }, 500)
+  if (!profile || String(profile.role || '').toLowerCase() !== 'admin') {
+    return json({ error: '无权操作：仅管理员可管理系统用户' }, 403)
+  }
 
   let body: any = {}
   try { body = await req.json() } catch { body = {} }
@@ -104,7 +111,7 @@ Deno.serve(async (req: Request) => {
           id: u.id,
           email,
           username: p.username || email.split('@')[0] || '',
-          role: p.role || (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ? 'admin' : 'member'),
+          role: p.role || 'member',
           init_password: p.init_password || '',
           note: p.note || String(u.user_metadata?.note || ''),
           // 停用状态直接读 Auth 的 banned_until，不额外存字段，避免两处不一致
@@ -180,8 +187,10 @@ Deno.serve(async (req: Request) => {
 
     const { data: target, error: getErr } = await admin.auth.admin.getUserById(id)
     if (getErr || !target?.user) return json({ error: '找不到该账号' }, 400)
-    if ((target.user.email || '').toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      return json({ error: '超级管理员账号不能停用' }, 400)
+    /* 管理员的角色存在数据库里，停用前查一次；不写死任何账号 */
+    const { data: tProf } = await admin.from('users').select('role').eq('id', id).maybeSingle()
+    if (String(tProf?.role || '').toLowerCase() === 'admin') {
+      return json({ error: '管理员账号不能停用，如需限制请先把角色改成成员' }, 400)
     }
 
     const { error } = await admin.auth.admin.updateUserById(id, {
@@ -217,6 +226,11 @@ Deno.serve(async (req: Request) => {
     const id = String(body.id || '')
     if (!id) return json({ error: '缺少用户 ID' }, 400)
     if (id === me.id) return json({ error: '不能删除当前登录的账号' }, 400)
+    /* 管理员账号一律不许删：先把角色改回 member，再删，避免误删唯一管理员 */
+    const { data: dProf } = await admin.from('users').select('role').eq('id', id).maybeSingle()
+    if (String(dProf?.role || '').toLowerCase() === 'admin') {
+      return json({ error: '管理员账号不能删除，请先把角色改成成员' }, 400)
+    }
     const { error } = await admin.auth.admin.deleteUser(id)
     if (error) return json({ error: '删除失败：' + error.message }, 400)
     return json({ ok: true })

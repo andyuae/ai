@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../store'
 import type { UsageMatrix, UsageCell } from '../store'
-import { SUPER_ADMIN_EMAIL, isSuperAdmin, listUsers, createUser, setUserPassword, clearInitPassword, deleteUser, setUserStatus } from '../lib/admin'
+import { isAdminRole, listUsers, createUser, setUserPassword, clearInitPassword, deleteUser, setUserStatus } from '../lib/admin'
 import type { AdminUserRow } from '../lib/admin'
 
 const state = store.state
@@ -76,8 +76,8 @@ onMounted(async () => {
   loadAdminUsers()
 })
 
-/* ===== 用户管理（仅超级管理员）===== */
-const isAdmin = computed(() => isSuperAdmin(state.user))
+/* ===== 用户管理（仅管理员）===== */
+const isAdmin = computed(() => isAdminRole(state.myRole))
 const userRows = ref<AdminUserRow[]>([])
 const usersLoading = ref(false)
 const usersErr = ref('')
@@ -406,7 +406,7 @@ function onModelChange(key: string, checked: string[]) {
               <td class="ut-name">
                 <div>
                   {{ u.username || '–' }}
-                  <el-tag v-if="u.email.toLowerCase() === SUPER_ADMIN_EMAIL" size="small" type="warning" effect="plain">超管</el-tag>
+                  <el-tag v-if="u.id === state.user?.id" size="small" type="warning" effect="plain">我</el-tag>
                 </div>
                 <div v-if="u.note" class="ut-note">{{ u.note }}</div>
               </td>
@@ -423,7 +423,7 @@ function onModelChange(key: string, checked: string[]) {
                 <el-switch
                   :model-value="!u.disabled"
                   :loading="statusBusy === u.id"
-                  :disabled="u.email.toLowerCase() === SUPER_ADMIN_EMAIL"
+                  :disabled="u.role === 'admin' || u.id === state.user?.id"
                   @change="(v: any) => toggleStatus(u, !!v)"
                 />
                 <span class="ut-status-text" :class="{ off: u.disabled }">{{ u.disabled ? '停用' : '启用' }}</span>
@@ -439,7 +439,7 @@ function onModelChange(key: string, checked: string[]) {
               <td class="ut-act">
                 <el-button size="small" text type="primary" @click="resetPwd(u)">重置密码</el-button>
                 <el-button size="small" text type="danger"
-                  :disabled="u.email.toLowerCase() === SUPER_ADMIN_EMAIL" @click="removeUser(u)">删除</el-button>
+                  :disabled="u.role === 'admin' || u.id === state.user?.id" @click="removeUser(u)">删除</el-button>
               </td>
             </tr>
           </tbody>

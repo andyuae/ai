@@ -12,6 +12,10 @@ type View = 'chat' | 'settings' | 'insights'
 const state = reactive({
   view: 'chat' as View,
   user: null as any,
+  /** 当前账号在 public.users 里的角色（权限判定的唯一依据，不认任何写死的邮箱） */
+  myRole: 'member' as 'admin' | 'member',
+  /** 当前账号的资料（用户名等），未读到档案时保持空 */
+  myProfile: null as { username?: string; role?: string } | null,
   authReady: false,
   providers: [] as ProviderState[],
   settings: {} as SettingsData,
@@ -183,8 +187,24 @@ async function loadConversations() {
   state.conversations = data as any
 }
 
+/* 读当前账号在 public.users 里的档案：角色决定能做什么，用户名用于界面显示。
+   表不存在 / 读不到时按「普通成员」处理（宁可少给权限，也不误开管理入口）。 */
+async function loadMyProfile() {
+  state.myProfile = null
+  state.myRole = 'member'
+  const uid = state.user?.id
+  if (!uid) return
+  try {
+    const { data, error } = await sb.from('users').select('username, role').eq('id', uid).maybeSingle()
+    if (error || !data) return
+    state.myProfile = data as any
+    state.myRole = String((data as any).role || '').toLowerCase() === 'admin' ? 'admin' : 'member'
+  } catch { /* 忽略：档案表还没建时不影响使用 */ }
+}
+
 async function enterApp(u: any) {
   state.user = u
+  await loadMyProfile()
   await loadSettings()
   await Promise.all([loadConfigs(), loadConversations()])
   state.view = 'chat'
@@ -584,26 +604,19 @@ function minuteToText(m: Minute): string {
   return lines.join('\n')
 }
 
-/* ================= 登录 / 注册 ================= */
-/* 登录名 → 真实邮箱，两步走：
-   1. 先查数据库：public.users 里的 username 就是登录名，由 resolve_login_email() 换回邮箱。
-      这一步是「唯一真相」，在用户管理里改了用户名立刻生效。
-   2. 查不到再兜底：早期没有 users 表时用过硬编码别名（如下），现在只当兜底保留，
-      防止「表还没建 / 超管那行记录被误删」时连自己都进不去。
-   Supabase Auth 只接受邮箱格式（必须有 @），所以短名字必须经过这层映射。 */
-const LOGIN_ALIAS: Record<string, string> = {
-  ai: 'ai@qq.com'
-}
+/* ================= 登录 ================= */
+/* 登录名 → 真实邮箱，完全由数据库驱动：
+   public.users.username 就是登录名，resolve_login_email() 负责换回该账号的邮箱。
+   Supabase Auth 只接受邮箱格式（必须有 @），短名字必须经过这层映射；
+   代码里不写死任何账号/邮箱，在「用户管理」里改了用户名立刻生效。
+   输入本身带 @ 且用户表里查不到时，按原样当作邮箱去登录（兼容直接输邮箱）。 */
 async function resolveLoginEmail(input: string): Promise<string> {
   const v = input.trim()
   if (!v) return v
-  // 用户名可以是任意字符（含中文、空格、甚至 @），所以以用户表为准
   try {
     const { data } = await sb.rpc('resolve_login_email', { p_name: v })
     if (typeof data === 'string' && data.includes('@')) return data
-  } catch { /* 表还没建时忽略，继续兜底 */ }
-  const alias = LOGIN_ALIAS[v.toLowerCase()]
-  if (alias) return alias
+  } catch { /* 表还没建时忽略，按原样继续 */ }
   return v
 }
 
@@ -627,6 +640,8 @@ async function doLogin(emailInput: string, password: string): Promise<string | n
 async function logout() {
   await sb.auth.signOut()
   state.user = null
+  state.myRole = 'member'
+  state.myProfile = null
   state.view = 'chat'
   state.currentConvId = null
   state.currentMessages = []

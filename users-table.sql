@@ -51,9 +51,30 @@ create trigger users_touch_updated_at
   before update on public.users
   for each row execute function public.touch_updated_at();
 
-/* ---------- 3. 行级安全（RLS） ----------
+/* ---------- 3. 管理员判定函数 ----------
+   权限只由数据决定：public.users 里 role = 'admin' 的那一行就是管理员。
+   代码里不写死任何邮箱/用户名，换管理员只改这张表。
+   security definer + 固定 search_path：函数以定义者身份读 users，绕开该表自己的
+   RLS，避免「查 users 要走策略、策略又查 users」的递归。 */
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.users
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated;
+
+/* ---------- 3.1 行级安全（RLS） ----------
    本人：只能读自己那一行（用于界面显示自己的用户名/角色）
-   超管：全部可读写（邮箱写死 ai@qq.com，换超管就改这里）
+   管理员：全部可读写（判定见上面的 is_admin()）
    前端用的 publishable key 属于 anon/authenticated，永远拿不到别人的行 */
 alter table public.users enable row level security;
 
@@ -65,8 +86,8 @@ create policy users_read_self on public.users
 drop policy if exists users_admin_all on public.users;
 create policy users_admin_all on public.users
   for all
-  using  (coalesce(auth.jwt() ->> 'email', '') = 'ai@qq.com')
-  with check (coalesce(auth.jwt() ->> 'email', '') = 'ai@qq.com');
+  using  (public.is_admin())
+  with check (public.is_admin());
 
 /* ---------- 4. 新账号自动建档 ----------
    在 auth.users 上挂触发器：任何方式建的号（站内后台、Supabase 控制台 Add user）
@@ -95,10 +116,11 @@ begin
     new.id,
     uname,
     new.email,
+    /* 角色只认建档时传入的元数据，其余一律 member。
+       谁是管理员由数据决定，部署后手动指定一次（见本文第 5.1 步）。 */
     case
       when coalesce(new.raw_user_meta_data ->> 'role', '') in ('admin', 'member')
         then new.raw_user_meta_data ->> 'role'
-      when lower(new.email) = 'ai@qq.com' then 'admin'
       else 'member'
     end
   )
@@ -113,7 +135,7 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_auth_user();
 
 /* ---------- 5. 回填已有账号 ----------
-   把 auth.users 里已经存在的账号（比如 ai@qq.com）补进这张表，重名自动加后缀 */
+   把 auth.users 里已经存在的账号补进这张表，重名自动加后缀 */
 insert into public.users (id, username, email, role)
 select t.id, t.uname, t.email, t.role
 from (
@@ -129,12 +151,18 @@ from (
     case
       when coalesce(u.raw_user_meta_data ->> 'role', '') in ('admin', 'member')
         then u.raw_user_meta_data ->> 'role'
-      when lower(u.email) = 'ai@qq.com' then 'admin'
       else 'member'
     end as role
   from auth.users u
 ) t
 on conflict (id) do nothing;
+
+/* ---------- 5.1 指定管理员（首次部署手动做一次） ----------
+   所有账号默认都是 member。要把谁提成管理员，改这一行数据即可：
+     update public.users set role = 'admin' where lower(username) = lower('你的用户名');
+   也可以直接在 Table Editor → users 表里把 role 改成 admin。
+   · 管理员可以不止一个，代码里没有任何写死的账号
+   · 管理员不能被停用/删除（前端按钮与边缘函数都做了拦截，防止把自己锁在门外） */
 
 /* ---------- 6. 登录名解析：用户名 → 邮箱 ----------
    登录页允许输入「用户名」或「邮箱」，用户名可以是任意字符（中文/空格/符号）。

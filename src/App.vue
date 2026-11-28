@@ -23,6 +23,8 @@ onMounted(async () => {
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT') {
       store.state.user = null
+      store.state.myRole = 'member'
+      store.state.myProfile = null
       store.setView('chat')
     }
   })

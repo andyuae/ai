@@ -1,16 +1,14 @@
 import { sb } from './supabase'
 
-/* ===== 用户管理（仅超级管理员）=====
+/* ===== 用户管理（仅管理员）=====
    创建 / 改密 / 删除用户必须用 service_role key，这个 key 绝不能进前端。
    所以走 Supabase Edge Function「admin-users」：函数内部用 service_role 调 Admin API，
-   并校验调用者 JWT 的邮箱是不是 SUPER_ADMIN_EMAIL。
+   并校验调用者在 public.users 里的 role 是不是 admin。
    前端只持有 publishable key，普通用户无法自助注册。 */
 
-/** 超管账号真实邮箱（Supabase Auth 只接受邮箱格式，短名 ai 靠 store 里的别名/RPC 映射） */
-export const SUPER_ADMIN_EMAIL = 'ai@qq.com'
-
-export function isSuperAdmin(user: any): boolean {
-  return !!user?.email && String(user.email).toLowerCase() === SUPER_ADMIN_EMAIL
+/** 权限判定只看 public.users.role，不再依赖任何写死的人名/邮箱 */
+export function isAdminRole(role?: string | null): boolean {
+  return String(role || '').toLowerCase() === 'admin'
 }
 
 /** public.users 档案表 + auth.users 合并后的一行 */

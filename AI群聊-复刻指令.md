@@ -231,22 +231,30 @@ await sb.auth.updateUser({ password: newPass })
 2. **前端不放入口**：登录页只有「登录」按钮，`doLogin(account, password)` 里不再有 `signUp` 分支。
    只删界面不关后台 = 假关闭；只关后台不删界面 = 用户点了报错。
 
-### 超管在后台建号：Edge Function `admin-users`
+### 管理员在后台建号：Edge Function `admin-users`
 
 创建 auth 用户必须用 `service_role` key，而这个 key 绝不能进前端（进了等于把整个库交出去）。所以放一个边缘函数：`supabase/functions/admin-users/index.ts`
 
 ```ts
-// 1) 用调用者的 JWT 反查身份，邮箱必须等于超管邮箱
+// 1) 用调用者的 JWT 反查身份（只确认「已登录」，不判断邮箱）
 const caller = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
 const { data: { user: me } } = await caller.auth.getUser()
-if ((me?.email || '').toLowerCase() !== SUPER_ADMIN_EMAIL) return json({ error: '仅超级管理员' }, 403)
+if (!me) return json({ error: '登录状态已失效' }, 401)
 
-// 2) 换成 service_role 建号
+// 2) 换成 service_role：建号要用它，查角色也要用它（服务端才有这个 key）
 const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false } })
+
+// 3) 权限只看数据：public.users 里 role = 'admin' 才算管理员
+const { data: prof } = await admin.from('users').select('role').eq('id', me.id).maybeSingle()
+if (String(prof?.role || '').toLowerCase() !== 'admin') return json({ error: '仅管理员可管理用户' }, 403)
+
+// 4) 建号
 await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { note } })
 ```
 
-动作有六个：`list` / `create` / `password` / `clear_password` / `status` / `delete`，删除和停用都禁止对自己操作。
+**为什么要用数据而不是写死账号**：写死邮箱/用户名时，换管理员就得改代码 + 重新部署函数；改成读 `role` 之后，在用户管理里把谁改成管理员就立刻生效，代码一行都不用动。
+
+动作有六个：`list` / `create` / `password` / `clear_password` / `status` / `delete`，删除和停用都禁止对自己操作，也不允许停用/删除管理员账号。
 
 **停用账号怎么实现**：Supabase Auth 没有「禁用」开关，只能用封禁 `admin.updateUserById(id, { ban_duration: '876000h' })`（100 年 = 永久），启用时传 `'none'`。状态不额外存字段，`list` 里直接从 `banned_until` 派生出 `disabled`，避免两处不一致。停用后登录会被 GoTrue 直接拒（`User is banned`），前端把它翻译成「该账号已被停用，请联系管理员」；已登录的会话要等 access token 过期（约 1 小时）才失效。
 
@@ -263,26 +271,32 @@ const FN_CANDIDATES = ['hyper-function', 'admin-users']   // 顺序：实际部�
 // 404 才换下一个（404 时服务端什么都没执行，重试安全）；其它错误直接抛给用户看
 ```
 
-设置页「用户管理」卡片用 `isSuperAdmin(state.user)` 控制渲染，只有超管看得到。
+设置页「用户管理」卡片用 `store.state.myRole === 'admin'` 控制渲染，只有管理员看得到。`myRole` 在登录后从 `public.users` 读自己那行的 `role`，**代码里没有任何写死的账号或邮箱**——谁当管理员完全由数据决定。
 
-### 登录名别名（短名代替邮箱）
+### 用户名即登录名（数据库驱动，无硬编码）
 
-Supabase Auth 的 `email` 字段**必须是邮箱格式**，`ai` 这种短名会被 GoTrue 直接拒掉（invalid format）。想用短名登录，只能在前端做映射：
+Supabase Auth 的 `email` 字段**必须是邮箱格式**，`ai` 这种短名会被 GoTrue 直接拒掉（invalid format）。所以登录页允许输入短名，但提交前要先换成该账号的真实邮箱：
 
 ```ts
-// store.ts
-const LOGIN_ALIAS: Record<string, string> = { ai: 'ai@qq.com' }   // 键统一小写
-function resolveLoginEmail(input: string) {
+// store.ts —— 只问数据库，不认任何写死的映射
+async function resolveLoginEmail(input: string) {
   const v = input.trim()
-  if (!v || v.includes('@')) return v        // 带 @ 的按原样走，完整邮箱仍可登录
-  return LOGIN_ALIAS[v.toLowerCase()] || v
+  if (!v) return v
+  try {
+    const { data } = await sb.rpc('resolve_login_email', { p_name: v })
+    if (typeof data === 'string' && data.includes('@')) return data
+  } catch { /* 表还没建时忽略 */ }
+  return v    // 查不到就按原样当邮箱去登录（兼容直接输邮箱）
 }
 ```
 
-`doLogin` 一进来就 `const email = resolveLoginEmail(emailInput)`，登录页输入框 `type="text"`、占位「请输入账号或邮箱」，这样输入 `ai` + 密码即可登录。
-以后新增的账号也走同一套：**建号用真实邮箱，想给短名就在这里加一行别名**。
+`doLogin` 一进来就 `const email = await resolveLoginEmail(emailInput)`，登录页输入框 `type="text"`、占位「请输入账号或邮箱」。
 
-注意：账号在云端仍然是 `ai@qq.com`，找回密码邮件会发到这个真实邮箱；要**彻底改掉**账号邮箱，只能在 Supabase Dashboard（Authentication → Users → 编辑 Email）或用 service_role key 调 `auth.admin.updateUserById`，不要在 SQL 里单独改 `auth.users.email`（`auth.identities` 会不同步）。
+要点：
+
+- 用户名存在 `public.users.username`，由 `resolve_login_email()` 换取邮箱——**改用户名立刻生效，不用改代码、不用重新构建**（早期版本用过「前端硬编码别名表」，已废弃）
+- 站内建的账号如果没填邮箱，边缘函数会生成 `u_<随机串>@user.local` 这种内部占位邮箱（不是真邮箱，也收不到信）；界面上会显示「未设置（内部账号）」
+- 要彻底更换某账号的登录邮箱，只能在 Supabase Dashboard（Authentication → Users → 编辑 Email）或用 service_role 调 `auth.admin.updateUserById`，**不要**在 SQL 里单独改 `auth.users.email`（`auth.identities` 会不同步）
 
 ### 坑
 
@@ -316,8 +330,8 @@ create table public.users (
 
 1. **不存登录密码明文**。真正的密码在 `auth.users.encrypted_password`（bcrypt），这张表只留 `init_password` 给超管发账号用，列级权限上只有超管能读；前端列表默认打码，点「查看」才显示。
 2. **触发器自动建档**：在 `auth.users` 上挂 `after insert` 触发器，无论从站内后台还是 Supabase 控制台 Add user 建的号，都会自动补一行，用户名默认取邮箱 `@` 前面那段，重名自动加 `2`、`3`。
-3. **RLS 双策略**：`auth.uid() = id` 让本人能读自己那行；超管用 `auth.jwt() ->> 'email' = 'ai@qq.com'` 全表可读写。**不要**在策略里再 `select from public.users` 判断角色，会递归爆栈。
-4. **用户名可直接登录**：`public.resolve_login_email(p_name)` 是 `security definer` 函数，只返回匹配到的 email（不泄露其他字段），前端登录时短名先走它（`LOGIN_ALIAS` 作为兜底）：
+3. **RLS 双策略**：`auth.uid() = id` 让本人能读自己那行；管理员用 `public.is_admin()`（`security definer` 函数读 `role = 'admin'`）全表可读写。**不要**在策略里直接 `select from public.users` 判断角色，会递归爆栈——必须包成 `security definer` 函数。
+4. **用户名可直接登录**：`public.resolve_login_email(p_name)` 是 `security definer` 函数，只返回匹配到的 email（不泄露其他字段），前端登录时短名先走它：
 
 ```ts
 const { data } = await sb.rpc('resolve_login_email', { p_name: v })
@@ -341,7 +355,7 @@ if (typeof data === 'string' && data.includes('@')) return data
 | 邮箱 | **选填**。不填时后台自动生成 `u_<12位随机>@user.local` 占位邮箱，用户只靠用户名登录；填了也可以用邮箱登录 |
 | 密码 | **字符类型不限**（中文/空格/符号都行），最少 6 位——这是 Supabase Auth 的平台硬下限，Dashboard 里最低也只能设 6，绕不过去 |
 
-登录解析顺序（`store.ts` 的 `resolveLoginEmail`）：`LOGIN_ALIAS` 硬编码别名 → `rpc('resolve_login_email')` 查用户名/邮箱 → 都查不到就按原样当邮箱交给 Supabase。
+登录解析顺序（`store.ts` 的 `resolveLoginEmail`）：`rpc('resolve_login_email')` 查用户名/邮箱 → 查不到就按原样当邮箱交给 Supabase。**没有硬编码别名表**，登录名完全由 `public.users.username` 决定。
 
 **不要**用「输入里有没有 `@`」来短路，用户名允许含 `@`，这样会漏查表：
 
