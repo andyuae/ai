@@ -24,7 +24,7 @@
 | 对话管理 | 会话列表、删除、导出 .txt、编辑重发、单列重试、停止生成 |
 | 联网搜索 | 每次提问先查一次实时资料注入上下文（失败不影响回答） |
 | 用量统计 | 按「模型 × 日期」统计 token 与预估费用 |
-| 账号 | 邮箱 + 密码注册/登录，数据按用户隔离（RLS） |
+| 账号 | 邮箱 + 密码登录，**不开放自助注册**，账号由超管在「设置 → 用户管理」开通，数据按用户隔离（RLS） |
 
 **明确不做的事**：不做服务端代理（密钥只存在用户自己的 Supabase 里）、不做多人协作、不做移动端 App。
 
@@ -89,12 +89,15 @@ src/
 │   ├── supabase.ts      3 行，createClient
 │   ├── types.ts         数据模型（Conversation / DbMessage / LiveCol / Attachment…）
 │   ├── ai.ts            ⭐ AI 调用核心：建消息、流式解析、视觉兜底、搜索、测试连通
+│   ├── admin.ts         ⭐ 用户管理：调 admin-users 边缘函数（仅超管可用）
 │   ├── atts.ts          ⭐ 附件：图片转 dataURL、docx/xlsx/pptx/pdf 解析、序列化
 │   └── md.ts            ⭐ Markdown 渲染 + 中文加粗修复 + 表格装饰
-└── views/
-    ├── LoginView.vue    登录/注册
-    ├── ChatView.vue     聊天主界面（会话栏 + 消息区 + 输入区 + 放大浮层）
-    └── SettingsView.vue 密钥配置 + 用量统计 + 改密码
+├── views/
+│   ├── LoginView.vue    登录（无注册入口）
+│   ├── ChatView.vue     聊天主界面（会话栏 + 消息区 + 输入区 + 放大浮层）
+│   └── SettingsView.vue 密钥配置 + 小秘书 + 用量统计 + 用户管理 + 改密码
+└── supabase/
+    └── functions/admin-users/index.ts   超管建号/改密/删号的边缘函数（需在控制台部署一次）
 ```
 
 ---
@@ -200,11 +203,9 @@ create policy "usage_own" on public.usage_logs for all
 
 ---
 
-## 五、认证（6 个调用，全在 store.ts）
+## 五、认证（只登录，不开放自助注册）
 
 ```ts
-// 注册
-await sb.auth.signUp({ email, password })
 // 登录
 const { data } = await sb.auth.signInWithPassword({ email, password })
 // 恢复登录态（30 天免登录由 Supabase 自动续期）
@@ -220,6 +221,44 @@ await sb.auth.updateUser({ password: newPass })
 
 `App.vue` 首屏：先 `getSession()`，有 session 就 `enterApp(user)`（并行加载偏好 + 密钥 + 会话列表），加载完成前显示「加载中……」，**不要先渲染聊天页再跳登录页**。
 
+### 不开放自助注册（账号由超管开通）
+
+必须两层都做，缺一层都能被绕过：
+
+1. **Supabase 侧关注册**：Authentication → Sign In / Providers → Email → 关闭 *Allow new users to sign up*。
+   关掉后 `signUp()` 直接返回 `Signups not allowed for this instance`，即使有人拿到 publishable key 也建不了号。
+   想确认当前状态，`GET {SUPABASE_URL}/auth/v1/settings`（带 `apikey`）看 `disable_signup` 是否为 `true`。
+2. **前端不放入口**：登录页只有「登录」按钮，`doLogin(account, password)` 里不再有 `signUp` 分支。
+   只删界面不关后台 = 假关闭；只关后台不删界面 = 用户点了报错。
+
+### 超管在后台建号：Edge Function `admin-users`
+
+创建 auth 用户必须用 `service_role` key，而这个 key 绝不能进前端（进了等于把整个库交出去）。所以放一个边缘函数：`supabase/functions/admin-users/index.ts`
+
+```ts
+// 1) 用调用者的 JWT 反查身份，邮箱必须等于超管邮箱
+const caller = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
+const { data: { user: me } } = await caller.auth.getUser()
+if ((me?.email || '').toLowerCase() !== SUPER_ADMIN_EMAIL) return json({ error: '仅超级管理员' }, 403)
+
+// 2) 换成 service_role 建号
+const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false } })
+await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { note } })
+```
+
+动作有四个：`list` / `create` / `password` / `delete`，删除时禁止删自己（`id === me.id`）。
+
+部署：Supabase 控制台 → Edge Functions → Deploy a new function → 名字必须是 `admin-users` → 把整份文件粘进在线编辑器 → Deploy。
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 平台默认注入，不用手动配环境变量。
+
+前端在 `src/lib/admin.ts`：
+
+```ts
+const { data, error } = await sb.functions.invoke('admin-users', { body: { action, ...payload } })
+```
+
+设置页「用户管理」卡片用 `isSuperAdmin(state.user)` 控制渲染，只有超管看得到。
+
 ### 登录名别名（短名代替邮箱）
 
 Supabase Auth 的 `email` 字段**必须是邮箱格式**，`ai` 这种短名会被 GoTrue 直接拒掉（invalid format）。想用短名登录，只能在前端做映射：
@@ -234,9 +273,19 @@ function resolveLoginEmail(input: string) {
 }
 ```
 
-`doLogin` 一进来就 `const email = resolveLoginEmail(emailInput)`，登录页输入框改成 `type="text"`、占位「请输入账号或邮箱」，这样输入 `ai` + 密码即可登录。
+`doLogin` 一进来就 `const email = resolveLoginEmail(emailInput)`，登录页输入框 `type="text"`、占位「请输入账号或邮箱」，这样输入 `ai` + 密码即可登录。
+以后新增的账号也走同一套：**建号用真实邮箱，想给短名就在这里加一行别名**。
 
 注意：账号在云端仍然是 `ai@qq.com`，找回密码邮件会发到这个真实邮箱；要**彻底改掉**账号邮箱，只能在 Supabase Dashboard（Authentication → Users → 编辑 Email）或用 service_role key 调 `auth.admin.updateUserById`，不要在 SQL 里单独改 `auth.users.email`（`auth.identities` 会不同步）。
+
+### 坑
+
+| 现象 | 原因 | 解法 |
+|---|---|---|
+| 前端报了「Edge Function returned a non-2xx status code」，看不到具体原因 | `functions.invoke` 只把状态码塞进 `error.message`，服务端返回的 JSON 在 `error.context` 里 | `await error.context.json()` 取 `{ error }` 再抛给界面 |
+| 建号报 `Signups not allowed for this instance` | 用的是 `signUp()`（受注册开关约束），不是 Admin API | 后台建号必须 `auth.admin.createUser` |
+| 删了账号但会话还在 | 外键没写 `on delete cascade` | `user_id` 外键统一 `references auth.users(id) on delete cascade` |
+| 新建的账号登录后一片空白 | 新用户的 `settings` 行是空的，代码却假设存在 | 读设置用 `maybeSingle()`，写用 `upsert` |
 
 ---
 
@@ -472,6 +521,8 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 - [ ] 点停止：所有列立刻停，不报错、不重试
 - [ ] 刷新页面：历史会话与消息都在；旧回答的表格仍是表格
 - [ ] 用另一个账号登录：看不到第一个账号的任何数据（RLS 生效）
+- [ ] 登录页只有「登录」，没有「创建账号」入口；直接调 `signUp` 返回 `Signups not allowed`
+- [ ] 超管在「设置 → 用户管理」能建号、重置密码、删除账号；非超管看不到这张卡片
 - [ ] 手机上打开：单列纵向排列，输入框可用
 
 ---

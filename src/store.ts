@@ -596,15 +596,11 @@ function resolveLoginEmail(input: string): string {
   return LOGIN_ALIAS[v.toLowerCase()] || v
 }
 
-async function doLogin(emailInput: string, password: string, signup: boolean): Promise<string | null> {
+/* 只允许登录，不开放自助注册：账号统一由超级管理员在「设置 → 用户管理」创建
+   （后台调用 Edge Function 走 Admin API，前端拿不到 service_role，普通用户无法注册） */
+async function doLogin(emailInput: string, password: string): Promise<string | null> {
   // 返回 null 表示成功，否则返回错误提示文案
   const email = resolveLoginEmail(emailInput)
-  if (signup) {
-    if (password.length < 6) return '密码至少 6 位'
-    const { error } = await sb.auth.signUp({ email, password })
-    if (error) return '注册失败：' + error.message
-    return 'SIGNUP_OK'
-  }
   const { data, error } = await sb.auth.signInWithPassword({ email, password })
   if (error) return error.message === 'Invalid login credentials' ? '账号或密码不正确，请重试' : ('登录失败：' + error.message)
   await enterApp(data.user)

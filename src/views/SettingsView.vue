@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../store'
 import type { UsageMatrix, UsageCell } from '../store'
+import { SUPER_ADMIN_EMAIL, isSuperAdmin, listUsers, createUser, setUserPassword, deleteUser } from '../lib/admin'
+import type { AdminUserRow } from '../lib/admin'
 
 const state = store.state
 const keyInputs = ref<Record<string, string>>({})
@@ -75,7 +77,97 @@ onMounted(async () => {
   await loadUsageData()
   state.providers.forEach((p: any) => { baseInputs.value[p.key] = store.effBaseUrl(p.key) })
   initSecretary()
+  loadAdminUsers()
 })
+
+/* ===== 用户管理（仅超级管理员）===== */
+const isAdmin = computed(() => isSuperAdmin(state.user))
+const userRows = ref<AdminUserRow[]>([])
+const usersLoading = ref(false)
+const usersErr = ref('')
+const userDialog = ref(false)
+const newEmail = ref('')
+const newPassword = ref('')
+const newNote = ref('')
+const creating = ref(false)
+
+async function loadAdminUsers() {
+  if (!isAdmin.value) return
+  usersLoading.value = true
+  usersErr.value = ''
+  try {
+    userRows.value = await listUsers()
+  } catch (e: any) {
+    usersErr.value = '读取用户列表失败：' + (e?.message || e)
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+function openUserDialog() {
+  newEmail.value = ''
+  newPassword.value = ''
+  newNote.value = ''
+  userDialog.value = true
+}
+
+async function submitNewUser() {
+  const email = newEmail.value.trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ElMessage.warning('请填写正确的邮箱地址'); return }
+  if (newPassword.value.length < 6) { ElMessage.warning('初始密码至少 6 位'); return }
+  creating.value = true
+  try {
+    await createUser(email, newPassword.value, newNote.value.trim())
+    ElMessage.success('账号已创建，请把账号和初始密码告知对方')
+    userDialog.value = false
+    await loadAdminUsers()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '创建失败')
+  } finally {
+    creating.value = false
+  }
+}
+
+async function resetPwd(u: AdminUserRow) {
+  try {
+    const { value } = await ElMessageBox.prompt(`给 ${u.email} 设置新密码`, '重置密码', {
+      inputPlaceholder: '至少 6 位',
+      inputType: 'password',
+      confirmButtonText: '确认重置',
+      cancelButtonText: '取消',
+      inputValidator: (v: string) => (v && v.length >= 6 ? true : '密码至少 6 位')
+    })
+    await setUserPassword(u.id, value)
+    ElMessage.success('密码已重置（对方当前会话会在 token 过期后失效）')
+  } catch (e: any) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '重置失败')
+  }
+}
+
+async function removeUser(u: AdminUserRow) {
+  try {
+    await ElMessageBox.confirm(
+      `删除 ${u.email} 会同时清除他的全部会话、API 密钥和用量记录，且不可恢复。确定删除？`,
+      '删除账号',
+      { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+    await deleteUser(u.id)
+    ElMessage.success('账号已删除')
+    await loadAdminUsers()
+  } catch (e: any) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '删除失败')
+  }
+}
+
+function fmtTime(t: string | null) {
+  if (!t) return '–'
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return '–'
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 async function saveKey(key: string) {
   const err = await store.saveProviderKey(key, keyInputs.value[key] || '')
@@ -221,6 +313,55 @@ async function changePass() {
       </div>
     </div>
 
+    <!-- 用户管理：仅超级管理员可见 -->
+    <div v-if="isAdmin" class="settings-card">
+      <div class="card-head">
+        <div>
+          <h2>用户管理 <el-tag size="small" type="warning" effect="plain">仅超级管理员</el-tag></h2>
+          <div class="sub">
+            登录页已关闭自助注册，账号只能在这里开通。新建后把「邮箱 + 初始密码」告知对方，对方登录后可在下方自行改密。
+            删除账号会一并清除他的全部会话、密钥和用量记录。
+          </div>
+        </div>
+        <el-button type="primary" @click="openUserDialog">＋ 新建账号</el-button>
+      </div>
+      <div v-if="usersLoading" class="muted">加载中……</div>
+      <div v-else-if="usersErr" class="user-err">
+        <div>{{ usersErr }}</div>
+        <div class="small">
+          站内用户管理需要先部署一次 <code>admin-users</code> 边缘函数：Supabase 控制台 → Edge Functions → Deploy a new function，
+          名称填 <code>admin-users</code>，把项目里 <code>supabase/functions/admin-users/index.ts</code> 整段粘贴进去 → Deploy。
+        </div>
+        <div class="small">
+          临时也可以直接在 Supabase 控制台 → Authentication → Users → Add user 创建（公开注册已关闭，只有后台能建号）。
+        </div>
+      </div>
+      <div v-else-if="!userRows.length" class="muted">还没有其他账号</div>
+      <div v-else class="usage-table-wrap">
+        <table class="usage-table user-table">
+          <thead>
+            <tr><th>账号（邮箱）</th><th>备注</th><th>创建时间</th><th>最近登录</th><th class="ut-act">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in userRows" :key="u.id">
+              <td class="ut-mail">
+                {{ u.email }}
+                <el-tag v-if="u.email.toLowerCase() === SUPER_ADMIN_EMAIL" size="small" type="warning" effect="plain">超管</el-tag>
+              </td>
+              <td>{{ u.note || '–' }}</td>
+              <td>{{ fmtTime(u.created_at) }}</td>
+              <td>{{ fmtTime(u.last_sign_in_at) }}</td>
+              <td class="ut-act">
+                <el-button size="small" text type="primary" @click="resetPwd(u)">重置密码</el-button>
+                <el-button size="small" text type="danger"
+                  :disabled="u.email.toLowerCase() === SUPER_ADMIN_EMAIL" @click="removeUser(u)">删除</el-button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 账号安全 -->
     <div class="settings-card">
       <h2>账号安全</h2>
@@ -237,5 +378,25 @@ async function changePass() {
         <div v-if="passMsg" class="muted pass-msg">{{ passMsg }}</div>
       </div>
     </div>
+
+    <!-- 新建账号弹窗 -->
+    <el-dialog v-model="userDialog" title="新建账号" width="440px" append-to-body>
+      <el-form label-width="84px" @submit.prevent="submitNewUser">
+        <el-form-item label="账号邮箱">
+          <el-input v-model="newEmail" placeholder="name@company.com" autocomplete="off" />
+        </el-form-item>
+        <el-form-item label="初始密码">
+          <el-input v-model="newPassword" placeholder="至少 6 位" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="newNote" maxlength="40" placeholder="选填，例如：运营-小王" />
+        </el-form-item>
+      </el-form>
+      <div class="muted small">登录名就是邮箱（Supabase 账号必须是邮箱格式）；创建后立即生效，不需要邮箱验证。</div>
+      <template #footer>
+        <el-button @click="userDialog = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitNewUser">创建账号</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>

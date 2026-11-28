@@ -70,7 +70,7 @@ input, textarea, select, button, optgroup {
 .login-logo h1 { font-size: 22px; margin-bottom: 6px; letter-spacing: 1px }
 .login-logo p { color: var(--muted); font-size: 13px }
 .login-err { color: #d64541; font-size: 13px; margin: -6px 0 10px }
-.login-tip { margin-top: 16px; font-size: 12px; color: var(--muted); text-align: center }
+.login-tip { margin-top: 16px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.75 }
 .login-tip a { color: var(--el-color-primary); cursor: pointer; font-weight: 500 }
 .boot-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted) }
 
@@ -437,6 +437,18 @@ input, textarea, select, button, optgroup {
 .usage-table tfoot td { background: #f4f7fb; font-weight: 600; border-top: 1px solid var(--line) }
 .usage-table tfoot .uc-model { background: #f4f7fb }
 .usage-foot { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: right }
+
+/* ===== 用户管理（仅超管）===== */
+.user-table th, .user-table td { text-align: left }
+.user-table .ut-mail { font-weight: 500 }
+.user-table .ut-mail .el-tag { margin-left: 6px; transform: translateY(-1px) }
+.user-table .ut-act { text-align: right; width: 1%; white-space: nowrap }
+.user-err { color: #9a6b12; font-size: 12px; line-height: 1.9 }
+.user-err .small { color: var(--muted); font-size: 11px }
+.user-err code {
+  font-family: var(--font-mono); background: #f4f6fa; border-radius: 4px;
+  padding: 1px 4px; font-size: 11px;
+}
 
 /* 移动端 */
 @media (max-width: 720px) {
