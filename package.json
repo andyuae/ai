@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "cf:login": "npx --yes wrangler@4 login",
     "cf:init": "npx --yes wrangler@4 pages project create ai --production-branch main",
