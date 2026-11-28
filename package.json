@@ -7,10 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview",
-    "cf:login": "npx --yes wrangler@4 login",
-    "cf:init": "npx --yes wrangler@4 pages project create ai --production-branch main",
-    "deploy:cf": "vite build && npx --yes wrangler@4 pages deploy dist --project-name ai --branch main --commit-dirty=true"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

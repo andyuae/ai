@@ -1,8 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 构建产物输出到 dist/（标准目录，不进 Git），由 GitHub Actions 上传为 Pages artifact；
-// 同一份 dist 也可直接 wrangler 直传到 Cloudflare Pages。
+// 构建产物输出到 dist/（标准目录，不进 Git），由 GitHub Actions 上传为 Pages artifact。
 //
 // 历史说明：早期用 docs/ 是为了「提交产物 + GitHub Pages 分支发布」；现已改为 Actions，
 // docs/ 已从仓库移除，新构建只写 dist/。
@@ -10,7 +9,6 @@ import vue from '@vitejs/plugin-vue'
 // base 用相对路径 './'：产物里引用的是 ./assets/xxx.js、./config.js，
 // 浏览器按「当前页面所在路径」解析，所以同一份产物丢到任何目录、任何空间都能跑：
 //   https://andyuae.github.io/ai/     → /ai/assets/xxx.js      ✓
-//   https://ai-xxx.pages.dev/         → /assets/xxx.js         ✓
 //   https://host.com/some/deep/dir/   → /some/deep/dir/assets/xxx.js  ✓
 //
 // 配套的两处「可移植」处理：
