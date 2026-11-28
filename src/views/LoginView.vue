@@ -28,7 +28,6 @@ async function submit() {
       <div class="login-logo">
         <img class="logo-circle" src="/favicon.svg" alt="" aria-hidden="true" />
         <h1>AI 群聊</h1>
-        <p>一条消息，同时发给多个 AI，各自独立回答</p>
       </div>
       <el-form @submit.prevent="submit">
         <el-form-item>
@@ -41,9 +40,6 @@ async function submit() {
         <div v-if="err" class="login-err">{{ err }}</div>
         <el-button type="primary" size="large" class="w100" :loading="busy" @click="submit">登 录</el-button>
       </el-form>
-      <div class="login-tip">
-        账号由管理员统一开通，不开放自助注册 · 密码由云端加密保存 · 30 天内免登录
-      </div>
     </div>
   </div>
 </template>
