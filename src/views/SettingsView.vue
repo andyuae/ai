@@ -388,8 +388,12 @@ function onModelChange(key: string, checked: string[]) {
       <div v-else-if="usersErr" class="user-err">
         <div>{{ usersErr }}</div>
         <div class="small">
-          站内用户管理需要先部署一次 <code>admin-users</code> 边缘函数：Supabase 控制台 → Edge Functions → Deploy a new function，
-          名称填 <code>admin-users</code>，把项目里 <code>supabase/functions/admin-users/index.ts</code> 整段粘贴进去 → Deploy。
+          站内用户管理需要一个边缘函数（本项目线上部署名是 <code>hyper-function</code>，文档里写作 <code>admin-users</code>，
+          前端两个名字都会自动尝试）：Supabase 控制台 → Edge Functions → 打开该函数 →
+          把仓库里 <code>supabase/functions/admin-users/index.ts</code> 整段覆盖进去 → Deploy。
+        </div>
+        <div class="small">
+          权限只看 <code>public.users.role</code>：把你那行改成 <code>admin</code> 就能管理用户，不需要改代码。
         </div>
         <div class="small">
           临时也可以直接在 Supabase 控制台 → Authentication → Users → Add user 创建（公开注册已关闭，只有后台能建号）。

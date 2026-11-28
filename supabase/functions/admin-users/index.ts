@@ -1,6 +1,6 @@
 /* =====================================================================
    Supabase Edge Function：admin-users
-   作用：让「超级管理员」在网页后台创建 / 重置 / 删除登录账号。
+   作用：让「管理员」在网页后台创建 / 重置 / 删除登录账号。
 
    为什么需要它：创建 auth 用户必须用 service_role key，这个 key 绝不能
    放在前端代码里。所以前端只调这个函数（带自己的登录 JWT），函数内部
@@ -8,13 +8,13 @@
    注意：权限只看数据表里的 role，代码里不写死任何邮箱或用户名。
 
    部署（一次即可，2 分钟）：
-     1. Supabase 控制台 → Edge Functions → Deploy a new function
-     2. 名称填 admin-users（必须一模一样）
-     3. 把本文件全部内容粘进在线编辑器 → Deploy
+     1. Supabase 控制台 → Edge Functions → 打开已有函数（或 Deploy a new function）
+     2. 名称任意，但要和前端能对上：前端按 ['hyper-function', 'admin-users'] 依次探测，
+        本项目线上实际部署名是 hyper-function（见 src/lib/admin.ts 的 FN_CANDIDATES）
+     3. 把本文件全部内容覆盖进在线编辑器 → Deploy
      4. 环境变量不用配：SUPABASE_URL / SUPABASE_ANON_KEY /
         SUPABASE_SERVICE_ROLE_KEY 平台默认已注入
-     5. 建议在函数设置里关掉 "Enforce JWT verification"？——不用关，
-        保持默认开启即可（前端调用时会自动带当前登录 token）
+     5. 不必关闭 "Enforce JWT verification"：保持默认开启，前端调用时会自动带当前登录 token
 
    另外建议同步关闭公开注册（否则别人拿到 anon key 仍可自己 signUp）：
      Authentication → Sign In / Providers → Email →
