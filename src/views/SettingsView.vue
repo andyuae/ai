@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../store'
 import type { UsageMatrix, UsageCell } from '../store'
-import { SUPER_ADMIN_EMAIL, isSuperAdmin, listUsers, createUser, setUserPassword, clearInitPassword, deleteUser } from '../lib/admin'
+import { SUPER_ADMIN_EMAIL, isSuperAdmin, listUsers, createUser, setUserPassword, clearInitPassword, deleteUser, setUserStatus } from '../lib/admin'
 import type { AdminUserRow } from '../lib/admin'
 
 const state = store.state
@@ -89,6 +89,8 @@ const newNote = ref('')
 const newRole = ref<'admin' | 'member'>('member')
 const creating = ref(false)
 const showPwd = ref<Record<string, boolean>>({})
+/** 正在切换状态的用户 id（控制开关 loading） */
+const statusBusy = ref('')
 
 async function loadAdminUsers() {
   if (!isAdmin.value) return
@@ -139,7 +141,7 @@ async function submitNewUser() {
 
 async function resetPwd(u: AdminUserRow) {
   try {
-    const { value } = await ElMessageBox.prompt(`给 ${u.email} 设置新密码`, '重置密码', {
+    const { value } = await ElMessageBox.prompt(`给 ${u.username || u.email} 设置新密码`, '重置密码', {
       inputPlaceholder: '至少 6 位',
       inputType: 'password',
       confirmButtonText: '确认重置',
@@ -152,6 +154,29 @@ async function resetPwd(u: AdminUserRow) {
   } catch (e: any) {
     if (e === 'cancel' || e === 'close') return
     ElMessage.error(e?.message || '重置失败')
+  }
+}
+
+/** 启用 / 停用：停用 = Auth 封禁，对方连登录都进不来；历史数据保留 */
+async function toggleStatus(u: AdminUserRow, enabled: boolean) {
+  if (!enabled) {
+    try {
+      await ElMessageBox.confirm(
+        `停用后「${u.username || u.email}」将无法登录（已登录的会话在 token 过期后失效），历史数据会保留。确定停用？`,
+        '停用账号',
+        { type: 'warning', confirmButtonText: '停用', cancelButtonText: '取消' }
+      )
+    } catch { return }
+  }
+  statusBusy.value = u.id
+  try {
+    await setUserStatus(u.id, enabled)
+    u.disabled = !enabled
+    ElMessage.success(enabled ? '已启用，对方可以正常登录了' : '已停用，对方无法再登录')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  } finally {
+    statusBusy.value = ''
   }
 }
 
@@ -183,7 +208,7 @@ async function clearPwd(u: AdminUserRow) {
 async function removeUser(u: AdminUserRow) {
   try {
     await ElMessageBox.confirm(
-      `删除 ${u.email} 会同时清除他的全部会话、API 密钥和用量记录，且不可恢复。确定删除？`,
+      `删除 ${u.username || u.email} 会同时清除他的全部会话、API 密钥和用量记录，且不可恢复。确定删除？`,
       '删除账号',
       { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
     )
@@ -374,7 +399,7 @@ function onModelChange(key: string, checked: string[]) {
       <div v-else class="usage-table-wrap">
         <table class="usage-table user-table">
           <thead>
-            <tr><th>用户名</th><th>邮箱</th><th>角色</th><th>初始密码</th><th>最近登录</th><th class="ut-act">操作</th></tr>
+            <tr><th>用户名</th><th>邮箱</th><th>角色</th><th>状态</th><th>初始密码</th><th>最近登录</th><th class="ut-act">操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="u in userRows" :key="u.id">
@@ -393,6 +418,15 @@ function onModelChange(key: string, checked: string[]) {
                 <el-tag size="small" :type="u.role === 'admin' ? 'danger' : 'info'" effect="plain">
                   {{ u.role === 'admin' ? '管理员' : '成员' }}
                 </el-tag>
+              </td>
+              <td class="ut-status">
+                <el-switch
+                  :model-value="!u.disabled"
+                  :loading="statusBusy === u.id"
+                  :disabled="u.email.toLowerCase() === SUPER_ADMIN_EMAIL"
+                  @change="(v: any) => toggleStatus(u, !!v)"
+                />
+                <span class="ut-status-text" :class="{ off: u.disabled }">{{ u.disabled ? '停用' : '启用' }}</span>
               </td>
               <td class="ut-pwd">
                 <span class="pwd-val" :class="{ masked: u.init_password && !showPwd[u.id] }">{{ pwdText(u) }}</span>

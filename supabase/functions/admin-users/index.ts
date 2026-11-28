@@ -39,6 +39,16 @@ function json(body: unknown, status = 200): Response {
   })
 }
 
+/** Auth 用户是否处于封禁（banned_until 在未来即视为停用） */
+function isBanned(u: any): boolean {
+  if (!u?.banned_until) return false
+  const t = new Date(u.banned_until).getTime()
+  return Number.isFinite(t) && t > Date.now()
+}
+
+/** 停用时长：100 年，等于永久（Supabase 没有 "禁止登录" 开关，只能靠封禁） */
+const BAN_FOREVER = '876000h'
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: '只接受 POST' }, 405)
@@ -97,6 +107,8 @@ Deno.serve(async (req: Request) => {
           role: p.role || (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ? 'admin' : 'member'),
           init_password: p.init_password || '',
           note: p.note || String(u.user_metadata?.note || ''),
+          // 停用状态直接读 Auth 的 banned_until，不额外存字段，避免两处不一致
+          disabled: isBanned(u),
           created_at: u.created_at || null,
           last_sign_in_at: u.last_sign_in_at || null
         }
@@ -157,6 +169,26 @@ Deno.serve(async (req: Request) => {
       )
     }
     return json({ id: uid, email })
+  }
+
+  /* 4.1 启用 / 停用（停用 = Auth 封禁，连登录都会被平台直接拒掉） */
+  if (action === 'status') {
+    const id = String(body.id || '')
+    const enabled = !!body.enabled
+    if (!id) return json({ error: '缺少用户 ID' }, 400)
+    if (id === me.id) return json({ error: '不能停用当前登录的账号' }, 400)
+
+    const { data: target, error: getErr } = await admin.auth.admin.getUserById(id)
+    if (getErr || !target?.user) return json({ error: '找不到该账号' }, 400)
+    if ((target.user.email || '').toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return json({ error: '超级管理员账号不能停用' }, 400)
+    }
+
+    const { error } = await admin.auth.admin.updateUserById(id, {
+      ban_duration: enabled ? 'none' : BAN_FOREVER
+    })
+    if (error) return json({ error: (enabled ? '启用失败：' : '停用失败：') + error.message }, 400)
+    return json({ ok: true, disabled: !enabled })
   }
 
   /* 5. 重置密码（同步更新初始密码记录，方便再次告知） */

@@ -246,7 +246,11 @@ const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false 
 await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { note } })
 ```
 
-动作有四个：`list` / `create` / `password` / `delete`，删除时禁止删自己（`id === me.id`）。
+动作有六个：`list` / `create` / `password` / `clear_password` / `status` / `delete`，删除和停用都禁止对自己操作。
+
+**停用账号怎么实现**：Supabase Auth 没有「禁用」开关，只能用封禁 `admin.updateUserById(id, { ban_duration: '876000h' })`（100 年 = 永久），启用时传 `'none'`。状态不额外存字段，`list` 里直接从 `banned_until` 派生出 `disabled`，避免两处不一致。停用后登录会被 GoTrue 直接拒（`User is banned`），前端把它翻译成「该账号已被停用，请联系管理员」；已登录的会话要等 access token 过期（约 1 小时）才失效。
+
+**二级权限（普通成员只能看自己 / 管理员可读全部）**：`conversations`、`messages`、`settings`、`usage_logs` 原来的策略都是 `auth.uid() = user_id`，已经是「只看自己」。`admin-read-policies.sql` 再加一层：`public.is_admin()`（security definer 读 `public.users.role`，避免 RLS 递归）+ 四张表的 `for select ... using (public.is_admin())`。写入永远只限本人，`provider_configs`（存密钥）**故意不对管理员开放**。
 
 部署：Supabase 控制台 → Edge Functions → Deploy a new function → 名字必须是 `admin-users` → 把整份文件粘进在线编辑器 → Deploy。
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 平台默认注入，不用手动配环境变量。

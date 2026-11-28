@@ -609,7 +609,13 @@ async function doLogin(emailInput: string, password: string): Promise<string | n
   // 返回 null 表示成功，否则返回错误提示文案
   const email = await resolveLoginEmail(emailInput)
   const { data, error } = await sb.auth.signInWithPassword({ email, password })
-  if (error) return error.message === 'Invalid login credentials' ? '账号或密码不正确，请重试' : ('登录失败：' + error.message)
+  if (error) {
+    const m = error.message || ''
+    if (m === 'Invalid login credentials') return '账号或密码不正确，请重试'
+    // 被超管停用的账号：Supabase 用封禁（banned_until）实现，这里翻译成人话
+    if (/banned/i.test(m)) return '该账号已被停用，请联系管理员'
+    return '登录失败：' + m
+  }
   await enterApp(data.user)
   return null
 }

@@ -22,6 +22,8 @@ export interface AdminUserRow {
   /** 初始密码（仅超管可见；非登录凭据，可随时清除） */
   init_password: string
   note: string
+  /** 停用状态（Auth banned_until 派生；停用后无法登录） */
+  disabled: boolean
   created_at: string | null
   last_sign_in_at: string | null
 }
@@ -87,6 +89,11 @@ export async function setUserPassword(id: string, password: string): Promise<voi
 
 export async function clearInitPassword(id: string): Promise<void> {
   await call('clear_password', { id })
+}
+
+/** 启用 / 停用账号（停用后该账号无法登录，已登录的会话在 token 过期后失效） */
+export async function setUserStatus(id: string, enabled: boolean): Promise<void> {
+  await call('status', { id, enabled })
 }
 
 export async function deleteUser(id: string): Promise<void> {

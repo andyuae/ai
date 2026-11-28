@@ -438,6 +438,14 @@ input, textarea, select, button, optgroup {
 .user-table .ut-name .el-tag { margin-left: 6px; transform: translateY(-1px) }
 .user-table .ut-note { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px }
 .user-table .ut-pwd { white-space: nowrap }
+/* 状态列：开关 + 文字（停用为灰色） */
+.user-table .ut-status { white-space: nowrap }
+.user-table .ut-status .el-switch { vertical-align: middle }
+.user-table .ut-status-text {
+  display: inline-block; margin-left: 8px; font-size: 12px; color: var(--muted);
+  vertical-align: middle; min-width: 26px;
+}
+.user-table .ut-status-text.off { color: #c45656 }
 .user-table .pwd-val {
   display: inline-block; min-width: 54px; font-family: var(--font-mono);
   font-size: 12px; color: #26303a;
