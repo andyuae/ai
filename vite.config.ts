@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 构建产物输出到 docs/，同时用于两个托管平台：
-//   1) GitHub Pages：仓库 andyuae/ai，访问路径是 /ai/（子路径）
-//   2) Cloudflare Pages：直接托管 docs/ 目录，访问路径是根 /（也能绑自定义域名）
+// 构建产物输出到 dist/（标准目录，不进 Git），由 GitHub Actions 上传为 Pages artifact；
+// 同一份 dist 也可直接 wrangler 直传到 Cloudflare Pages。
+//
+// 历史说明：早期用 docs/ 是为了「提交产物 + GitHub Pages 分支发布」，现已改为 Actions，
+// docs/ 仅作为过渡期备份保留，新构建不会再写它。
 //
 // base 用相对路径 './'：产物里引用的是 ./assets/xxx.js、./config.js，
 // 浏览器按「当前页面所在路径」解析，所以同一份产物丢到任何目录、任何空间都能跑：
@@ -17,12 +19,12 @@ import vue from '@vitejs/plugin-vue'
 //
 // 注意：本应用没有 vue-router（视图靠 store 切换、URL 不带路由），
 // 所以相对 base 不会出现「刷新子路径 404」的问题。
-// 将来若改成 history 路由，需要把 base 改回绝对路径。
+// 将来若引入路由，必须用 createWebHashHistory，否则整包迁移会失效。
 export default defineConfig({
   plugins: [vue()],
   base: './',
   build: {
-    outDir: 'docs',
+    outDir: 'dist',
     emptyOutDir: true
   }
 })

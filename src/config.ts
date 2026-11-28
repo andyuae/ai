@@ -1,8 +1,9 @@
 /** 全局配置：Supabase 公开钥匙 + AI 服务商信息
  *
- *  Supabase 地址/钥匙支持「运行时覆盖」：站点根目录下的 config.js 会先执行，
- *  把值挂到 window.__APP_CONFIG__ 上。这样整站文件夹复制到任何空间都能跑，
- *  想换数据库也只改 config.js，不必重新构建。没有 config.js 时用下面这组默认值。
+ *  取值优先级（从高到低）：
+ *    1. window.__APP_CONFIG__ —— 站点根目录 config.js 提供，运行时覆盖，换库不用重新构建
+ *    2. import.meta.env.VITE_SUPABASE_URL / VITE_SUPABASE_KEY —— 构建期注入（CI 用 Repository Variables）
+ *    3. 下面这组内置默认值 —— 兜底，保证任何情况下页面都能启动
  */
 declare global {
   interface Window {
@@ -11,9 +12,12 @@ declare global {
 }
 
 const RUNTIME = (typeof window !== 'undefined' && window.__APP_CONFIG__) || {}
+const ENV = (import.meta as any).env || {}
 
-export const SUPABASE_URL = RUNTIME.supabaseUrl || 'https://dkmdttuwzaghiehvkfua.supabase.co'
-export const SUPABASE_KEY = RUNTIME.supabaseKey || 'sb_publishable_NNxHIOFD-BeoXJG50C5c3g_kpKhKw9i'
+export const SUPABASE_URL =
+  RUNTIME.supabaseUrl || ENV.VITE_SUPABASE_URL || 'https://dkmdttuwzaghiehvkfua.supabase.co'
+export const SUPABASE_KEY =
+  RUNTIME.supabaseKey || ENV.VITE_SUPABASE_KEY || 'sb_publishable_NNxHIOFD-BeoXJG50C5c3g_kpKhKw9i'
 
 export interface ProviderMeta {
   name: string

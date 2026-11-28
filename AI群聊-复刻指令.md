@@ -41,7 +41,7 @@
 | 路由 | **不用 vue-router**，`state.view: 'chat' \| 'settings'` | 只有两个视图，且需要「未登录时根本不渲染」 |
 | Markdown | `marked`（GFM）+ `DOMPurify` | AI 输出 = 不可信内容，必须净化后再 `v-html` |
 | 数据库/认证 | Supabase（Postgres + Auth + RLS），前端只用 Publishable Key | 免后端；RLS 保证 A 用户读不到 B 用户的会话和密钥 |
-| 部署 | GitHub Pages（仓库 → Settings → Pages → main / docs） | 免费、自带 HTTPS，推送即上线 |
+| 部署 | GitHub Pages（Settings → Pages → Source: **GitHub Actions**） | 免费、自带 HTTPS，推送即上线，产物不进仓库 |
 | 后端 | **没有** | 浏览器直连各家 AI 的 OpenAI 兼容接口 |
 
 依赖清单（`package.json`）：
@@ -69,8 +69,8 @@
 ```ts
 export default defineConfig({
   plugins: [vue()],
-  base: '/你的仓库名/',        // 必须与仓库路径一致，否则线上白屏 + 资源 404
-  build: { outDir: 'docs', emptyOutDir: true }  // 产物进 docs/，Pages 指向这里
+  base: './',                  // 相对路径：子路径部署、整包复制到任何空间都能用
+  build: { outDir: 'dist', emptyOutDir: true }  // 产物进 dist/，由 Actions 上传
 })
 ```
 
@@ -566,15 +566,21 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 
 ---
 
-## 十一、部署（GitHub Pages，10 分钟）
+## 十一、部署（GitHub Pages + Actions，约 15 分钟）
 
 1. 建 Supabase 项目 → SQL Editor 跑完第四节的 SQL → Authentication 里关掉 Confirm email。
-2. 把 `config.ts` 里的 `SUPABASE_URL` / `SUPABASE_KEY` 换成你自己的（Publishable/anon key，公开无妨）。
+2. 配置 Supabase 地址与钥匙（三种方式，优先级从高到低）：
+   - 站点根目录 `config.js`（运行时，换库不用重新构建）
+   - 仓库 Settings → Secrets and variables → Actions → **Variables** 里加 `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY`（构建期注入）
+   - 直接改 `src/config.ts` 的内置默认值（兜底）
 3. `npm install` → `npm run dev` 本地跑通 → 在设置页填一家密钥测试连通。
-4. `npm run build` → 产物进 `docs/`。
-5. 推 GitHub → Settings → Pages → Source: Deploy from a branch → 分支 `main` / 目录 `/docs` → Save。
-6. 等 1~2 分钟，访问 `https://<用户名>.github.io/<仓库名>/`。**首次打开记得 Ctrl+F5**（HTML 常被缓存）。
-7. 以后每次改完：`npm run build && git add -A && git commit -m "..." && git push`，40 秒左右自动生效。
+4. 推 GitHub → Settings → Pages → **Source: GitHub Actions**（不要选分支）。
+5. 推送 `main` 后，`.github/workflows/deploy.yml` 自动执行：`npm ci` → `npm run typecheck` → `npm run build` → 上传 `dist/` → `actions/deploy-pages` 发布。
+6. 等 Actions 跑完（约 1~2 分钟），访问 `https://<用户名>.github.io/<仓库名>/`。**首次打开记得 Ctrl+F5**。
+7. 以后每次改完只需 `git add -A && git commit -m "..." && git push`，**不要再提交构建产物**（`dist/` 已在 `.gitignore`）。
+
+> 为什么用 Actions 而不是「提交 docs/ + 分支发布」：产物不进仓库，Git 历史不会被 1.5MB 的 JS 反复撑大；构建环境固定（Node 20），不会出现「我这能跑、CI 不能跑」；还能顺手把 `tsc --noEmit` 作为发布门禁。
+> 代价：构建失败时站点停在上一版，需要看 Actions 日志排查。
 
 > 硬约束：**GitHub Pages 没有后端进程**，浏览器不能写仓库里的文件；仓库是 public，任何放进仓库的 `.sqlite`/`.env`/密钥文件等于公开泄露。所以数据只能放 Supabase（或同类的云端数据库），密钥只能存数据库。
 
@@ -607,7 +613,7 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 | 4 | 页面上露出一堆 `**` | 中文全角引号紧贴星号，CommonMark 不识别 | 渲染前 `repairEmphasis()` |
 | 5 | 表格只显示两列 | 五列并排每列 300px，真表格放不下 | 容器查询 <520px 转卡片布局 |
 | 6 | 某列提示被内容安全策略拦截 | Anthropic 等上游的内容分类器 + 累计拒绝次数临时限制 | 识别后**不重试**，提示换模型/稍后再试 |
-| 7 | 线上白屏、资源 404 | `vite base` 与仓库路径不一致 | `base: '/仓库名/'`，产物放 `docs/` |
+| 7 | 线上白屏、资源 404 | `base` 写成了绝对路径（如 `/仓库名/`），换个部署位置就断 | `base: './'`；产物放 `dist/`，Actions 上传 |
 | 8 | 刷新后又要重新登录 | 只把 user 存了内存，没走 `getSession()` | 首屏 `getSession()` 恢复，Supabase 会续期 |
 | 9 | 密钥泄露风险 | 把 key 写进前端常量或提交 .env | 密钥只存数据库（RLS 保护），前端只放 Publishable Key |
 | 10 | 长对话越来越慢 / 报超长 | 每轮都把全部历史 + 历史图片重发 | 历史取最近 30 条，附件降级成文件名 |
@@ -620,7 +626,7 @@ html = html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ')
 >
 > **一、产品**：一条消息同时发给 5 家 AI（ChatGPT / Gemini / DeepSeek / Kimi / Anthropic），五列并排各自流式作答。支持带图片和 Word/Excel/PPT/PDF 附件；支持多轮追问、会话列表、删除、导出 txt、编辑重发、单列重试、停止生成、按提问语言作答、每次提问先联网搜索再回答。
 >
-> **二、技术栈（不得替换）**：Vue 3.5 `<script setup>` + TS + Vite 6；Element Plus（zh-cn）；状态用单个 `reactive` store，**不引 Pinia**；**不用 vue-router**，用 `state.view: 'chat'|'settings'` 切换；Markdown 用 `marked`（GFM，breaks:true）+ `DOMPurify`；数据与认证用 `@supabase/supabase-js`；构建 `base: '/仓库名/'`、`outDir: 'docs'`，部署 GitHub Pages。
+> **二、技术栈（不得替换）**：Vue 3.5 `<script setup>` + TS + Vite 6；Element Plus（zh-cn）；状态用单个 `reactive` store，**不引 Pinia**；**不用 vue-router**，用 `state.view: 'chat'|'settings'` 切换；Markdown 用 `marked`（GFM，breaks:true）+ `DOMPurify`；数据与认证用 `@supabase/supabase-js`；构建 `base: './'`、`outDir: 'dist'`，GitHub Actions 上传 artifact 部署到 Pages。
 >
 > **三、数据库（Supabase，5 张表，全部开 RLS）**：`provider_configs(user_id, provider, enabled, api_key, unique(user_id,provider))`、`conversations(user_id, title, participants jsonb, status, updated_at)`、`messages(conversation_id, sender, provider, model, content, tokens, status)`、`settings(user_id pk, data jsonb)`、`usage_logs(user_id, provider, model, prompt_tokens, completion_tokens, cost_estimate)`。`user_id` 全部 `default auth.uid()`；messages 的 RLS 通过所属 conversation 的 user_id 判断。请一并输出可直接执行的建表 + RLS 策略 SQL。
 >
@@ -777,7 +783,7 @@ npx wrangler@4 --version
 | 方式 | 要不要 GitHub | 每次发布 | 备注 |
 |---|---|---|---|
 | Git 集成 | 要 | push 后自动构建 | 最省心，但依赖 GitHub |
-| 控制台 Direct Upload | 不要 | 手动拖整个 `docs` 文件夹进网页 | 零配置，但要手动 |
+| 控制台 Direct Upload | 不要 | 手动拖整个 `dist` 文件夹进网页 | 零配置，但要手动 |
 | **Wrangler 直传** | **不要** | **一条命令** | 本方案 |
 
 **关键限制**：Pages 项目在创建时就定了类型（Direct Upload 还是 Git 集成），**之后不能互转**。想以后改成 Git 集成，只能删项目重建（域名可复用）。所以要一次选对。
@@ -801,14 +807,14 @@ npm run cf:init     # 创建项目 ai，分配 ai.pages.dev
 npm run deploy:cf
 ```
 
-等价于「构建 → 把 `docs` 上传到一个名为 `ai` 的项目」：
+等价于「构建 → 把 `dist` 上传到一个名为 `ai` 的项目」：
 
 ```bash
 vite build
-npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=true
+npx wrangler@4 pages deploy dist --project-name ai --branch main --commit-dirty=true
 ```
 
-- `docs` 是**已构建的产物目录**，Wrangler 只上传、不构建
+- `dist` 是**已构建的产物目录**，Wrangler 只上传、不构建
 - `--commit-dirty=true` 让工作区有未提交改动时也能发布（否则 Wrangler 会拦）
 - 上传的是增量内容，几百 KB 通常 5–10 秒完成
 
@@ -816,8 +822,8 @@ npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=
 
 | 平台 | 发布方式 |
 |---|---|
-| GitHub Pages | `git push origin main`（产物已在 `docs/`，Pages 直接读） |
-| Cloudflare Pages | `npm run deploy:cf`（同一份 `docs/`，直传） |
+| GitHub Pages | `git push origin main`（Actions 自动构建 `dist/` 并发布） |
+| Cloudflare Pages | `npm run deploy:cf`（本地构建 `dist/` 后直传） |
 
 同一份产物、同一个 `base: './'`，两边都能跑。**注意**：直传不会因为 push 自动触发，改了代码只 push 而不跑 `deploy:cf`，CF 那边会停在旧版本——这是 Direct Upload 的固有特性，不是故障。
 
@@ -827,7 +833,7 @@ npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=
 |---|---|---|
 | `wrangler pages deploy` 报项目不存在 | 项目还没建 | 先 `npm run cf:init`（或去掉 `--project-name` 让它交互式创建） |
 | 报 401 / Authentication error | 本机没授权或 token 过期 | `npm run cf:login`，或检查 `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` 是否都设了 |
-| 部署成功但页面白屏 | 传了源码目录而不是 `docs` | 第一个参数必须是产物目录；`base` 保持 `'./'` |
+| 部署成功但页面白屏 | 传了源码目录而不是 `dist` | 第一个参数必须是产物目录；`base` 保持 `'./'` |
 | 想让 CF 跟着 git push 自动更新 | Direct Upload 项目不支持 | 只能删项目重建成 Git 集成，或加一个本地 git hook 自动跑 `deploy:cf` |
 | 提示 Pages 已进入维护模式 | 2025-04 起 CF 把新功能投向 Workers | 纯静态站 Pages 仍完整支持、无停用计划；新项目想用 Workers Static Assets 也行，`wrangler deploy` 而非 `pages deploy` |
 
@@ -835,13 +841,13 @@ npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=
 
 ## 十八、可移植性：相对路径 + 运行时配置
 
-目标：把 `docs/` 整个文件夹复制到任何空间（根目录、深层子目录、任意域名），**不改任何文件、不重新构建**就能打开；要换数据库时只改一个 `config.js`。
+目标：把构建产物目录（`dist/`，即 Actions artifact 里的同一份文件）复制到任何空间（根目录、深层子目录、任意域名），**不改任何文件、不重新构建**就能打开；要换数据库时只改一个 `config.js`。
 
 ### 1. 构建期：`base: './'`
 
 ```ts
 // vite.config.ts
-export default defineConfig({ base: './', build: { outDir: 'docs' } })
+export default defineConfig({ base: './', build: { outDir: 'dist' } })
 ```
 
 产物里所有引用都是相对的：
@@ -880,7 +886,7 @@ export const SUPABASE_KEY = RUNTIME.supabaseKey || 'sb_publishable_...'
 ```
 
 - 默认是空对象 → 用的是现在线上那套 Supabase，复制即用
-- 想接到另一个 Supabase 项目 → 只改 `docs/config.js`，**不用 `npm run build`**
+- 想接到另一个 Supabase 项目 → 只改产物目录里的 `config.js`，**不用 `npm run build`**
 - `config.js` 文件被删掉也只是 404 一条，不影响启动（有兜底）
 - 这里只能放 publishable / anon key（受 RLS 约束），**绝不能放 service_role**
 
@@ -901,7 +907,7 @@ siteUrl(q)  // sitePath() + 查询串，例如 https://host/ai/?s=token
 | 根域名能开，`/abc` 不带斜杠就白屏 | 宿主没做 301，相对路径基准错了 | `index.html` 里的尾斜杠纠正脚本 |
 | 部署到新域名后仍连老数据库 | URL 打包进了 JS | 改 `config.js`（运行时覆盖），或重新构建 |
 | `config.js` 改了没生效 | 浏览器缓存 | 强刷，或在宿主给 `config.js` 设 `Cache-Control: no-cache` |
-| 改了 `config.js` 还是 404 | 文件必须在**产物目录**（`docs/`），不是仓库根 | 源文件放 `public/config.js`，构建会复制过去 |
+| 改了 `config.js` 还是 404 | 文件必须在**产物目录**（`dist/`），不是仓库根 | 源文件放 `public/config.js`，构建会复制过去 |
 
 ---
 

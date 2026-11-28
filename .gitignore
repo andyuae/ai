@@ -9,6 +9,10 @@ backend/test-data/
 
 # 环境变量文件（含加密钥匙）
 .env
+.env.local
+.env.*.local
+# 但示例文件要提交，供别人知道有哪些变量
+!.env.example
 
 # 日志和临时文件
 *.log
@@ -19,3 +23,6 @@ tmp/
 
 # 依赖包（体积巨大，上传无意义）
 node_modules/
+
+# 构建产物：由 GitHub Actions 在云端构建，不再提交（历史上 docs/ 曾是产物目录）
+dist/
