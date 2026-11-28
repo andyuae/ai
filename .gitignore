@@ -24,5 +24,7 @@ tmp/
 # 依赖包（体积巨大，上传无意义）
 node_modules/
 
-# 构建产物：由 GitHub Actions 在云端构建，不再提交（历史上 docs/ 曾是产物目录）
+# 构建产物：由 GitHub Actions 在云端构建，不再提交
 dist/
+# 历史上的产物目录，已废弃（防止旧脚本/误操作又把产物提交进来）
+docs/

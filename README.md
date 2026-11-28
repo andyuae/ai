@@ -11,8 +11,10 @@
 ├── src/        Vue 3 源码           ├── Supabase 认证（邮箱+密码）
 ├── index.html  Vite 入口            ├── Supabase 数据库（会话/消息/密钥/用量）
 ├── vite.config.ts  构建配置         └── 行级安全 RLS（数据按用户隔离）
-└── docs/       构建产物（GitHub Pages 发布目录）
+└── public/     静态资源（config.js 运行时配置，原样复制到站点根目录）
 ```
+
+- 构建产物输出到 `dist/`，**不进仓库**：push 到 `main` 后由 GitHub Actions 构建并部署 Pages
 
 - **无任何服务端代码**：前端直连 Supabase 与各家 AI 接口（OpenAI 兼容流式）
 - 技术栈：Vue 3 + Vite + TypeScript + Element Plus
@@ -23,7 +25,7 @@
 ```bash
 npm install     # 安装依赖
 npm run dev     # 本地开发
-npm run build   # 构建输出到 docs/，push 后 GitHub Pages 自动更新
+npm run build   # 构建输出到 dist/；push 到 main 后由 Actions 自动构建并部署
 ```
 
 ## 数据库
