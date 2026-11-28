@@ -585,21 +585,25 @@ function minuteToText(m: Minute): string {
 }
 
 /* ================= 登录 / 注册 ================= */
-/* 登录名别名：Supabase Auth 只接受邮箱格式（必须有 @），所以「ai」这种短名字在前端映射成真实账号邮箱。
-   新增别名只需在这里加一行，键统一小写；输入里带 @ 的按原样走，兼容完整邮箱登录。 */
+/* 登录名 → 真实邮箱，两步走：
+   1. 先查数据库：public.users 里的 username 就是登录名，由 resolve_login_email() 换回邮箱。
+      这一步是「唯一真相」，在用户管理里改了用户名立刻生效。
+   2. 查不到再兜底：早期没有 users 表时用过硬编码别名（如下），现在只当兜底保留，
+      防止「表还没建 / 超管那行记录被误删」时连自己都进不去。
+   Supabase Auth 只接受邮箱格式（必须有 @），所以短名字必须经过这层映射。 */
 const LOGIN_ALIAS: Record<string, string> = {
   ai: 'ai@qq.com'
 }
 async function resolveLoginEmail(input: string): Promise<string> {
   const v = input.trim()
   if (!v) return v
-  const alias = LOGIN_ALIAS[v.toLowerCase()]
-  if (alias) return alias
-  // 用户名可以是任意字符（含中文、空格、甚至 @），所以先查用户表；查不到再按邮箱原样走
+  // 用户名可以是任意字符（含中文、空格、甚至 @），所以以用户表为准
   try {
     const { data } = await sb.rpc('resolve_login_email', { p_name: v })
     if (typeof data === 'string' && data.includes('@')) return data
-  } catch { /* 表还没建时忽略，按原样继续 */ }
+  } catch { /* 表还没建时忽略，继续兜底 */ }
+  const alias = LOGIN_ALIAS[v.toLowerCase()]
+  if (alias) return alias
   return v
 }
 
