@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { store, DISPLAY_ORDER } from '../store'
 import { PROVIDERS } from '../config'
+import { sitePath } from '../lib/url'
 import type { SharedInsight } from '../lib/types'
 
 const props = defineProps<{ token: string }>()
@@ -21,7 +22,7 @@ function lines(t?: string) {
   return String(t || '').split(/\n|；|;/).map(s => s.trim()).filter(Boolean)
 }
 function goHome() {
-  location.href = location.pathname
+  location.href = sitePath()
 }
 
 onMounted(async () => {

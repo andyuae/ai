@@ -5,11 +5,15 @@ import vue from '@vitejs/plugin-vue'
 //   1) GitHub Pages：仓库 andyuae/ai，访问路径是 /ai/（子路径）
 //   2) Cloudflare Pages：直接托管 docs/ 目录，访问路径是根 /（也能绑自定义域名）
 //
-// base 用相对路径 './'：产物里引用的是 ./assets/xxx.js，
-// 浏览器按「当前页面所在路径」解析，所以两边都对：
-//   https://andyuae.github.io/ai/  → /ai/assets/xxx.js   ✓
-//   https://ai-xxx.pages.dev/      → /assets/xxx.js      ✓
-// 一份产物两个平台通吃，不用为谁单独配置。
+// base 用相对路径 './'：产物里引用的是 ./assets/xxx.js、./config.js，
+// 浏览器按「当前页面所在路径」解析，所以同一份产物丢到任何目录、任何空间都能跑：
+//   https://andyuae.github.io/ai/     → /ai/assets/xxx.js      ✓
+//   https://ai-xxx.pages.dev/         → /assets/xxx.js         ✓
+//   https://host.com/some/deep/dir/   → /some/deep/dir/assets/xxx.js  ✓
+//
+// 配套的两处「可移植」处理：
+//   · index.html 里有尾斜杠纠正脚本（宿主不自动跳 /abc/ 时补一次，避免 ./assets 解析错位）
+//   · public/config.js 提供运行时配置，换数据库不用重新构建
 //
 // 注意：本应用没有 vue-router（视图靠 store 切换、URL 不带路由），
 // 所以相对 base 不会出现「刷新子路径 404」的问题。

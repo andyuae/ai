@@ -833,6 +833,78 @@ npx wrangler@4 pages deploy docs --project-name ai --branch main --commit-dirty=
 
 ---
 
+## 十八、可移植性：相对路径 + 运行时配置
+
+目标：把 `docs/` 整个文件夹复制到任何空间（根目录、深层子目录、任意域名），**不改任何文件、不重新构建**就能打开；要换数据库时只改一个 `config.js`。
+
+### 1. 构建期：`base: './'`
+
+```ts
+// vite.config.ts
+export default defineConfig({ base: './', build: { outDir: 'docs' } })
+```
+
+产物里所有引用都是相对的：
+
+```html
+<script src="./config.js"></script>
+<script type="module" src="./assets/index-xxx.js"></script>
+<link rel="stylesheet" href="./assets/index-xxx.css">
+```
+
+浏览器按「当前页面所在路径」解析，所以 `/`、`/ai/`、`/a/b/c/` 全部正确。CSS 里的字体/图片已是 data URI 或 `url(#id)`，不存在绝对路径。
+
+### 2. 尾斜杠纠正（宿主不给补的时候）
+
+相对路径有个天然陷阱：地址是 `/abc`（没有结尾斜杠）时，`./assets/x.js` 会解析成 `/assets/x.js` → 404 → 白屏。多数托管（GitHub Pages、Cloudflare Pages、Nginx 默认配置）会自动 301 到 `/abc/`，但一部分小型空间不会。
+
+`index.html` 的 `<head>` 里因此放了一段几行的内联脚本，检测到「路径最后一段不含 `.` 且不以 `/` 结尾」就 `location.replace` 到带斜杠的地址。实测：访问 `/app/sub/dir` 时先 404 三个资源，随即跳到 `/app/sub/dir/` 并正常渲染。
+
+### 3. 运行时配置：`public/config.js`
+
+`public/config.js` 会被原样复制到站点根，页面加载时**先于**应用执行：
+
+```js
+window.__APP_CONFIG__ = {
+  // supabaseUrl: 'https://xxxxxxxx.supabase.co',
+  // supabaseKey: 'sb_publishable_xxxxxxxx'
+}
+```
+
+`src/config.ts` 读取它，没有则回退到内置默认值：
+
+```ts
+const RUNTIME = (typeof window !== 'undefined' && window.__APP_CONFIG__) || {}
+export const SUPABASE_URL = RUNTIME.supabaseUrl || 'https://dkmdttuwzaghiehvkfua.supabase.co'
+export const SUPABASE_KEY = RUNTIME.supabaseKey || 'sb_publishable_...'
+```
+
+- 默认是空对象 → 用的是现在线上那套 Supabase，复制即用
+- 想接到另一个 Supabase 项目 → 只改 `docs/config.js`，**不用 `npm run build`**
+- `config.js` 文件被删掉也只是 404 一条，不影响启动（有兜底）
+- 这里只能放 publishable / anon key（受 RLS 约束），**绝不能放 service_role**
+
+### 4. 链接一律从当前地址推导
+
+分享链接、返回首页这类要拼 URL 的地方，不要用 `location.origin + '/ai/'` 这种写死子目录的写法，统一用 `src/lib/url.ts`：
+
+```ts
+sitePath()  // '/'、'/ai/'、'/ai'、'/ai/index.html'、'/a/b' → 都归一到以 / 结尾
+siteUrl(q)  // sitePath() + 查询串，例如 https://host/ai/?s=token
+```
+
+### 坑
+
+| 现象 | 原因 | 解法 |
+|---|---|---|
+| 子目录部署白屏，控制台全是 `/assets/...` 404 | 用了 `base: '/ai/'` 之类的绝对路径 | `base: './'` |
+| 根域名能开，`/abc` 不带斜杠就白屏 | 宿主没做 301，相对路径基准错了 | `index.html` 里的尾斜杠纠正脚本 |
+| 部署到新域名后仍连老数据库 | URL 打包进了 JS | 改 `config.js`（运行时覆盖），或重新构建 |
+| `config.js` 改了没生效 | 浏览器缓存 | 强刷，或在宿主给 `config.js` 设 `Cache-Control: no-cache` |
+| 改了 `config.js` 还是 404 | 文件必须在**产物目录**（`docs/`），不是仓库根 | 源文件放 `public/config.js`，构建会复制过去 |
+
+---
+
 ## 附：技术底座一句话总结
 
 > **Vue 3 + Vite + TypeScript + Element Plus 做界面，Supabase（Postgres + Auth + RLS）做数据与账号，浏览器直连 5 家 OpenAI 兼容接口，GitHub Pages 静态托管。没有后端、没有服务器、密钥不落前端。**

@@ -1,6 +1,19 @@
-/** 全局配置：Supabase 公开钥匙 + AI 服务商信息（与旧版 config.js 等价） */
-export const SUPABASE_URL = 'https://dkmdttuwzaghiehvkfua.supabase.co'
-export const SUPABASE_KEY = 'sb_publishable_NNxHIOFD-BeoXJG50C5c3g_kpKhKw9i'
+/** 全局配置：Supabase 公开钥匙 + AI 服务商信息
+ *
+ *  Supabase 地址/钥匙支持「运行时覆盖」：站点根目录下的 config.js 会先执行，
+ *  把值挂到 window.__APP_CONFIG__ 上。这样整站文件夹复制到任何空间都能跑，
+ *  想换数据库也只改 config.js，不必重新构建。没有 config.js 时用下面这组默认值。
+ */
+declare global {
+  interface Window {
+    __APP_CONFIG__?: { supabaseUrl?: string; supabaseKey?: string }
+  }
+}
+
+const RUNTIME = (typeof window !== 'undefined' && window.__APP_CONFIG__) || {}
+
+export const SUPABASE_URL = RUNTIME.supabaseUrl || 'https://dkmdttuwzaghiehvkfua.supabase.co'
+export const SUPABASE_KEY = RUNTIME.supabaseKey || 'sb_publishable_NNxHIOFD-BeoXJG50C5c3g_kpKhKw9i'
 
 export interface ProviderMeta {
   name: string

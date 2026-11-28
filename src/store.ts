@@ -4,6 +4,7 @@ import { sb } from './lib/supabase'
 import { PROVIDERS, KEY_PREFIX_HINT } from './config'
 import type { Conversation, DbMessage, LiveCol, ProviderState, SettingsData, Attachment, Insight, SharedInsight, Minute } from './lib/types'
 import { serializeAtts, parseAtts, processFile, ATT_COUNT_MAX } from './lib/atts'
+import { siteUrl } from './lib/url'
 import { buildMessages, callAI, testProviderModel, friendlyTestError, fetchModels, pickVisionModel, describeImages, isSafetyBlock, buildInsightMessages, parseInsightJson, buildMinuteMessages, parseMinuteJson, detectReplyLang } from './lib/ai'
 
 type View = 'chat' | 'settings' | 'insights'
@@ -346,9 +347,8 @@ async function shareInsight(item: Insight): Promise<string> {
     item.share_token = token
     item.shared_at = new Date().toISOString()
   }
-    /* 不依赖构建期常量：从当前地址推导站点根（/ai/），本地与线上都能用 */
-  const base = location.pathname.replace(/[^/]*$/, '') || '/'
-  return `${location.origin}${base}?s=${token}`
+    /* 不依赖构建期常量：从当前地址推导站点根（/ai/、/、任意子目录都行） */
+  return siteUrl('s=' + token)
 }
 
 async function unshareInsight(item: Insight) {

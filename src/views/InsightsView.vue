@@ -2,6 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store, DISPLAY_ORDER } from '../store'
+import { siteUrl } from '../lib/url'
 import type { Insight } from '../lib/types'
 
 const state = store.state
@@ -54,8 +55,7 @@ async function copyText(t: string) {
 
 async function onShare(i: Insight) {
   if (i.share_token) {
-    const base = location.pathname.replace(/[^/]*$/, '') || '/'
-    await copyText(`${location.origin}${base}?s=${i.share_token}`)
+    await copyText(siteUrl('s=' + i.share_token))
     ElMessage.success('分享链接已复制')
     return
   }
