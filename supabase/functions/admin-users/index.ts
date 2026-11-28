@@ -72,44 +72,78 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json() } catch { body = {} }
   const action = String(body.action || '')
 
-  /* 3. 列表 */
+  /* 3. 列表（auth 用户 + public.users 档案合并） */
   if (action === 'list') {
     const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 })
     if (error) return json({ error: '读取用户列表失败：' + error.message }, 400)
+
+    // 档案表可能还没建/还没同步，读不到就用兜底值，不能让整个列表挂掉
+    const profiles: Record<string, any> = {}
+    try {
+      const { data: rows, error: pErr } = await admin
+        .from('users')
+        .select('id, username, email, role, init_password, note')
+      if (!pErr && rows) rows.forEach((r: any) => { profiles[r.id] = r })
+    } catch { /* 忽略：表不存在时照常返回 auth 用户 */ }
+
     const users = (data?.users || [])
-      .map((u: any) => ({
-        id: u.id,
-        email: u.email || '',
-        created_at: u.created_at || null,
-        last_sign_in_at: u.last_sign_in_at || null,
-        note: String(u.user_metadata?.note || '')
-      }))
+      .map((u: any) => {
+        const p = profiles[u.id] || {}
+        const email = u.email || ''
+        return {
+          id: u.id,
+          email,
+          username: p.username || email.split('@')[0] || '',
+          role: p.role || (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ? 'admin' : 'member'),
+          init_password: p.init_password || '',
+          note: p.note || String(u.user_metadata?.note || ''),
+          created_at: u.created_at || null,
+          last_sign_in_at: u.last_sign_in_at || null
+        }
+      })
       .sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)))
     return json({ users })
   }
 
-  /* 4. 新建 */
+  /* 4. 新建（同时写 public.users 档案，触发器没建也能兜住） */
   if (action === 'create') {
     const email = String(body.email || '').trim().toLowerCase()
     const password = String(body.password || '')
+    const username = String(body.username || '').trim().slice(0, 30)
+    const role = body.role === 'admin' ? 'admin' : 'member'
     const note = String(body.note || '').slice(0, 40)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: '邮箱格式不正确' }, 400)
     if (password.length < 6) return json({ error: '密码至少 6 位' }, 400)
 
+    // 用户名查重（表还没建时 ex 为 null，直接跳过）
+    if (username) {
+      const { data: ex } = await admin.from('users').select('id').ilike('username', username).limit(1)
+      if (ex && ex.length) return json({ error: '用户名「' + username + '」已被占用，换一个' }, 400)
+    }
+
     const { data, error } = await admin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,     // 直接标记已确认，省掉验证邮件
-      user_metadata: { note }  // 备注存在 user_metadata，方便列表展示
+      email_confirm: true,                                    // 直接标记已确认，省掉验证邮件
+      user_metadata: { note, username, role }                 // 触发器会读这三个字段建档案
     })
     if (error) {
       const dup = /already|exists|registered/i.test(error.message)
       return json({ error: dup ? '该邮箱已存在' : ('创建失败：' + error.message) }, 400)
     }
-    return json({ id: data.user?.id || null })
+
+    const uid = data.user?.id || null
+    if (uid) {
+      // 触发器已建好档案时这里是更新；表还没建时忽略错误，不影响建号
+      await admin.from('users').upsert(
+        { id: uid, username: username || email.split('@')[0], email, role, note, init_password: password },
+        { onConflict: 'id' }
+      )
+    }
+    return json({ id: uid })
   }
 
-  /* 5. 重置密码 */
+  /* 5. 重置密码（同步更新初始密码记录，方便再次告知） */
   if (action === 'password') {
     const id = String(body.id || '')
     const password = String(body.password || '')
@@ -117,6 +151,16 @@ Deno.serve(async (req: Request) => {
     if (password.length < 6) return json({ error: '密码至少 6 位' }, 400)
     const { error } = await admin.auth.admin.updateUserById(id, { password })
     if (error) return json({ error: '重置失败：' + error.message }, 400)
+    await admin.from('users').update({ init_password: password }).eq('id', id)
+    return json({ ok: true })
+  }
+
+  /* 5.1 清除初始密码（对方改完密码后，超管把记录清掉） */
+  if (action === 'clear_password') {
+    const id = String(body.id || '')
+    if (!id) return json({ error: '缺少用户 ID' }, 400)
+    const { error } = await admin.from('users').update({ init_password: null }).eq('id', id)
+    if (error) return json({ error: '清除失败：' + error.message }, 400)
     return json({ ok: true })
   }
 

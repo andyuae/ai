@@ -6,19 +6,24 @@ import { sb } from './supabase'
    并校验调用者 JWT 的邮箱是不是 SUPER_ADMIN_EMAIL。
    前端只持有 publishable key，普通用户无法自助注册。 */
 
-/** 超级管理员真实账号邮箱（Supabase Auth 只接受邮箱格式，短名 ai 靠 store 里的别名映射） */
+/** 超管账号真实邮箱（Supabase Auth 只接受邮箱格式，短名 ai 靠 store 里的别名/RPC 映射） */
 export const SUPER_ADMIN_EMAIL = 'ai@qq.com'
 
 export function isSuperAdmin(user: any): boolean {
   return !!user?.email && String(user.email).toLowerCase() === SUPER_ADMIN_EMAIL
 }
 
+/** public.users 档案表 + auth.users 合并后的一行 */
 export interface AdminUserRow {
   id: string
+  username: string
   email: string
+  role: 'admin' | 'member' | string
+  /** 初始密码（仅超管可见；非登录凭据，可随时清除） */
+  init_password: string
+  note: string
   created_at: string | null
   last_sign_in_at: string | null
-  note: string
 }
 
 async function call<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
@@ -47,13 +52,25 @@ export async function listUsers(): Promise<AdminUserRow[]> {
   return d.users || []
 }
 
-export async function createUser(email: string, password: string, note = ''): Promise<string> {
-  const d = await call<{ id: string }>('create', { email, password, note })
+export interface CreateUserPayload {
+  email: string
+  password: string
+  username?: string
+  role?: 'admin' | 'member'
+  note?: string
+}
+
+export async function createUser(p: CreateUserPayload): Promise<string> {
+  const d = await call<{ id: string }>('create', { ...p })
   return d.id
 }
 
 export async function setUserPassword(id: string, password: string): Promise<void> {
   await call('password', { id, password })
+}
+
+export async function clearInitPassword(id: string): Promise<void> {
+  await call('clear_password', { id })
 }
 
 export async function deleteUser(id: string): Promise<void> {

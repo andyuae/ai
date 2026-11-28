@@ -590,17 +590,24 @@ function minuteToText(m: Minute): string {
 const LOGIN_ALIAS: Record<string, string> = {
   ai: 'ai@qq.com'
 }
-function resolveLoginEmail(input: string): string {
+async function resolveLoginEmail(input: string): Promise<string> {
   const v = input.trim()
   if (!v || v.includes('@')) return v
-  return LOGIN_ALIAS[v.toLowerCase()] || v
+  const alias = LOGIN_ALIAS[v.toLowerCase()]
+  if (alias) return alias
+  // 用户信息表里的用户名（public.users.username）——表还没建时静默跳过
+  try {
+    const { data } = await sb.rpc('resolve_login_email', { p_name: v })
+    if (typeof data === 'string' && data.includes('@')) return data
+  } catch { /* 忽略 */ }
+  return v
 }
 
 /* 只允许登录，不开放自助注册：账号统一由超级管理员在「设置 → 用户管理」创建
    （后台调用 Edge Function 走 Admin API，前端拿不到 service_role，普通用户无法注册） */
 async function doLogin(emailInput: string, password: string): Promise<string | null> {
   // 返回 null 表示成功，否则返回错误提示文案
-  const email = resolveLoginEmail(emailInput)
+  const email = await resolveLoginEmail(emailInput)
   const { data, error } = await sb.auth.signInWithPassword({ email, password })
   if (error) return error.message === 'Invalid login credentials' ? '账号或密码不正确，请重试' : ('登录失败：' + error.message)
   await enterApp(data.user)

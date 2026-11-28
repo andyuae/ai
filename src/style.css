@@ -440,8 +440,15 @@ input, textarea, select, button, optgroup {
 
 /* ===== 用户管理（仅超管）===== */
 .user-table th, .user-table td { text-align: left }
-.user-table .ut-mail { font-weight: 500 }
-.user-table .ut-mail .el-tag { margin-left: 6px; transform: translateY(-1px) }
+.user-table .ut-name { font-weight: 500 }
+.user-table .ut-name .el-tag { margin-left: 6px; transform: translateY(-1px) }
+.user-table .ut-note { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px }
+.user-table .ut-pwd { white-space: nowrap }
+.user-table .pwd-val {
+  display: inline-block; min-width: 54px; font-family: var(--font-mono);
+  font-size: 12px; color: #26303a;
+}
+.user-table .pwd-val.masked { letter-spacing: 2px; color: var(--muted) }
 .user-table .ut-act { text-align: right; width: 1%; white-space: nowrap }
 .user-err { color: #9a6b12; font-size: 12px; line-height: 1.9 }
 .user-err .small { color: var(--muted); font-size: 11px }

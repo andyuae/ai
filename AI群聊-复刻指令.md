@@ -287,6 +287,46 @@ function resolveLoginEmail(input: string) {
 | 删了账号但会话还在 | 外键没写 `on delete cascade` | `user_id` 外键统一 `references auth.users(id) on delete cascade` |
 | 新建的账号登录后一片空白 | 新用户的 `settings` 行是空的，代码却假设存在 | 读设置用 `maybeSingle()`，写用 `upsert` |
 
+### 用户信息表 public.users
+
+`auth.users` 是 Supabase 托管的，字段不能改、密码只给哈希。要「看得到用户名 / 邮箱 / 角色」这种业务字段，就在 `public` 下另建一张档案表，用 `id` 跟 `auth.users` 一对一（**不是**把密码搬出来自己校验）。
+
+```sql
+create table public.users (
+  id            uuid primary key references auth.users(id) on delete cascade,
+  username      text not null,
+  email         text not null,
+  role          text not null default 'member' check (role in ('admin','member')),
+  init_password text,          -- 初始密码，仅超管可见，可随时清空
+  note          text,
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now()
+);
+```
+
+完整脚本（含 RLS、触发器、回填、登录名解析函数）见仓库根目录 `users-table.sql`，粘到 SQL Editor 跑一次即可，可重复执行。
+
+四个关键设计：
+
+1. **不存登录密码明文**。真正的密码在 `auth.users.encrypted_password`（bcrypt），这张表只留 `init_password` 给超管发账号用，列级权限上只有超管能读；前端列表默认打码，点「查看」才显示。
+2. **触发器自动建档**：在 `auth.users` 上挂 `after insert` 触发器，无论从站内后台还是 Supabase 控制台 Add user 建的号，都会自动补一行，用户名默认取邮箱 `@` 前面那段，重名自动加 `2`、`3`。
+3. **RLS 双策略**：`auth.uid() = id` 让本人能读自己那行；超管用 `auth.jwt() ->> 'email' = 'ai@qq.com'` 全表可读写。**不要**在策略里再 `select from public.users` 判断角色，会递归爆栈。
+4. **用户名可直接登录**：`public.resolve_login_email(p_name)` 是 `security definer` 函数，只返回匹配到的 email（不泄露其他字段），前端登录时短名先走它（`LOGIN_ALIAS` 作为兜底）：
+
+```ts
+const { data } = await sb.rpc('resolve_login_email', { p_name: v })
+if (typeof data === 'string' && data.includes('@')) return data
+```
+
+坑：
+
+| 现象 | 原因 | 解法 |
+|---|---|---|
+| 建号时报 `duplicate key value violates unique constraint users_username_lower_key` | 用户名（不区分大小写）重复 | 触发器里 while 循环加后缀；Edge Function 建号前先 `ilike` 查重 |
+| 超管读不到别人的行 | RLS 策略写成了 `auth.email()` 或对比了 `auth.uid()` | 用 `auth.jwt() ->> 'email'` 并写全 `coalesce(...,'')` |
+| `policy ... infinite recursion detected` | 策略里查了本表 | 判断条件只用 JWT 里的信息 |
+| 删了 auth 用户，档案还留着 | 外键没写 `on delete cascade` | `id uuid references auth.users(id) on delete cascade` |
+
 ---
 
 ## 六、AI 调用层（最容易踩坑的地方，重点看）
